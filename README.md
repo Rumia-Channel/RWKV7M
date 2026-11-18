@@ -237,6 +237,16 @@ To recompute the decision and paired history-family intervals without loading JA
 
 `python scripts/probe_middle_copy_swap.py out/address-middle-swap` runs a separate causal check on fresh families. Both worlds start identically, all overwritten sources get one neutral value, and only two destination tokens in stage 12 are swapped. The next 1,024 distractor tokens, 12 remaining stages, and questions are identical. [Raw paired answers and scores](experiments/binding-state/address-screening/middle-swap/) distinguish tracking that middle transfer from exploiting a prefix, suffix or poison-value tag.
 
+### Does a frozen reader transfer to a different question?
+
+The [route-transfer trial](RWKV7M.paper.md#2218-記憶の再利用と別の問い方への自力転移を分ける) changes the requested operation, not just the held-out values. On a pair of transit maps, three answered examples on a separate line specify which rule to apply to seven test stations. The final query tokens are identical across tasks. A second surface uses episode-specific aliases for the written station names and includes their public dictionary.
+
+```bash
+python scripts/probe_route_transfer.py out/route-transfer
+```
+
+Use a fresh directory. `raw` is the unmodified reader with no task routine; `legend` only translates public aliases; `walk` additionally infers a constant signed stride from three demonstrations using that reader's own one-edge predictions. It abstains if the stride is not unique. The parity-dependent rule is deliberately outside that executor. [Paired answers, primitive edges, scores and transfer gates](experiments/binding-state/route-transfer/). Only `raw` counts toward unaided transfer.
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:
