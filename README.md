@@ -269,6 +269,32 @@ To rebuild the observations from raw histories and the registered frozen RWKV we
 
 On all 40 unseen maps, all three learned heads using isolated memory solved the withheld four-forward, one-back and mixed-stride rules. Resetting the cursor every round, at the same parameter count, scored zero on four-forward. A separate change in **which ID bit specifies the rule** dropped transfer to 369/840 paired answers. Streaming ten million physical distractor tokens preserved the answers on three other maps; it did not increase the number of facts stored. [Weights, observations, predictions, controls and stress data](experiments/binding-state/iterative-reader/).
 
+### Writing scenes before the question is known
+
+[Paper §§22.20–22.21](RWKV7M.paper.md#2220-問いを知らずに書き後から場面を一番地だけで引けるか) tests a different memory: read each eight-token statement **before** seeing either question, optionally write one of 64 slots, then read one slot per question. There is no attention over the prefix and no external routing key. Each test asks about two histories that swap the objects in two statements; guessing the same object twice cannot pass. The vocabulary, clause boundaries and eight possible answer classes are fixed.
+
+```bash
+export PYTHONPATH=src JAX_PLATFORMS=cpu
+exp=experiments/binding-state/episodic-address
+run=out/episodic-address-rerun    # choose a fresh directory; outputs are not overwritten
+python scripts/probe_episodic_address.py predict "$exp/lexical-heads/factors-s42.safetensors" "$exp/world0.json.example"
+python scripts/probe_episodic_address.py predict "$exp/lexical-heads/factors-s42.safetensors" "$exp/world1.json.example"
+
+for split in train dev; do python scripts/episodic_scene_features.py "$run/cache" --split "$split"; done
+python scripts/train_episodic_address.py "$run/cache" "$run/heads"
+python scripts/train_episodic_address.py "$run/cache" "$run/heads" --arm factors
+python scripts/train_episodic_address.py "$run/cache" "$run/lexical-heads" --lexical
+python scripts/train_episodic_address.py - "$run/counts-heads" --counts-only
+for split in test confirm; do python scripts/episodic_scene_features.py "$run/cache" --split "$split"; done
+python scripts/probe_episodic_address.py assess "$run/cache" "$run/heads" "$run/panel"
+python scripts/probe_episodic_address.py assess "$run/cache" "$run/heads" "$run/factor-panel" --factors-only
+python scripts/probe_episodic_address.py replicate "$run/cache" "$run/heads" "$run/lexical-heads" "$run/replication"
+python scripts/probe_episodic_address.py counts-control "$run/counts-heads" "$run/counts-control"
+python scripts/measure_episodic_survival.py "$run/lexical-heads" "$run/replication/lexical" "$run/counts-heads" "$run/counts-control" "$run/survival"
+```
+
+In the hardest fresh condition (16 facts + 1,024 background tokens), the hybrid with actor/occasion supervision answered from the correct sentence in both worlds on 227/240 paired questions. The hybrid trained from answers alone got 4/240 answers; the equally supervised, parameter-matched **no-RWKV** count control got 240/240. The scorer, not the predictor, sees support positions and gold answers. The distance calculation enumerates every background form in this grammar; it is not a long-context throughput or language-model-quality benchmark. [Weights, per-family predictions, ablations and CPU costs](experiments/binding-state/episodic-address/).
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:

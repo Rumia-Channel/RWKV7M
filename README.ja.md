@@ -229,6 +229,18 @@ uv run python scripts/probe_iterative_reader.py predict "$e/heads/isolated-s42.s
 
 この例は問いによって `1, 4, 1` 回で停止します。新しい歩数やその組合せには転移しましたが、歩数を選ぶ**条件自体**を変えると正答率は43.9%に落ちました。自然文を解くモデルではありません。[学習済み重み・比較用予測・1,000万tokenでの測定](experiments/binding-state/iterative-reader/)と[再現コマンド](README.md#learning-where-to-read-next-and-when-to-stop)を公開しています。
 
+### 問いが来る前に書いた文を、一つの番地から読む
+
+[論文 §22.20–22.21](RWKV7M.paper.md#2220-問いを知らずに書き後から場面を一番地だけで引けるか)では、同じ言葉が同じ回数出る二つの履歴で、二つの場面の物だけを入れ替えます。64スロットの記憶は問いを知らずに書き、問いが来たら一つの番地しか読みません。8語ずつの文の境界は既知です。正しい答えに加え、本当にその文を読んだかを評価します。
+
+```powershell
+$e = 'experiments/binding-state/episodic-address'
+uv run python scripts/probe_episodic_address.py predict "$e/lexical-heads/factors-s42.safetensors" "$e/world0.json.example"
+uv run python scripts/probe_episodic_address.py predict "$e/lexical-heads/factors-s42.safetensors" "$e/world1.json.example"
+```
+
+未訓練の人物・状況の組、16事実＋背景1,024 tokenで、RWKV＋語数の方式は人物・状況の教師付きなら227/240問で両方の世界の正しい文から正答しましたが、答えだけを教えると4/240問の正答でした。同じ教師で訓練した**RWKVなし**の語数対照は240/240問。これは制御語彙での番地記憶の結果で、通常の言語モデルの改善を示しません。[重み・全予測・上書きの内訳](experiments/binding-state/episodic-address/)／[再現コマンド](README.md#writing-scenes-before-the-question-is-known)。
+
 ## ファイルとディレクトリの扱い
 
 - `data/`: dataset を置く場所です。`.bin` / `.idx` は大きくなりやすいので git には含めません。
