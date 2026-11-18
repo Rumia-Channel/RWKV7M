@@ -247,6 +247,28 @@ python scripts/probe_route_transfer.py out/route-transfer
 
 Use a fresh directory. `raw` is the unmodified reader with no task routine; `legend` only translates public aliases; `walk` additionally infers a constant signed stride from three demonstrations using that reader's own one-edge predictions. It abstains if the stride is not unique. The parity-dependent rule is deliberately outside that executor. [Paired answers, primitive edges, scores and transfer gates](experiments/binding-state/route-transfer/). Only `raw` counts toward unaided transfer.
 
+### Learning where to read next, and when to stop
+
+The [iterative-reader study](RWKV7M.paper.md#2219-読んだ値を次のアドレスへ戻し停止も学習する) freezes the synthetic RWKV and trains only **67 FP32 parameters** from final answers. A shared two-head controller inspects both fields of the 16 predicted records, feeds its readout back, and decides per question whether to answer or continue. There is no rule ID, stride search, ground-truth map or teacher trace in the predictor. Aliases are translated using the episode's public legend. This is a task-specific experimental memory, not an option in the language-model trainer.
+
+```bash
+# Predict without labels or a task name; use '-' instead of a path for stdin.
+exp=experiments/binding-state/iterative-reader
+python scripts/probe_iterative_reader.py predict "$exp/heads/isolated-s42.safetensors" "$exp/episode.json.example"
+
+# Reproduce with the published neural observations under a fresh output path.
+run=out/iterative-reader-rerun
+python scripts/train_iterative_reader.py "$exp/cache" "$run/heads"
+python scripts/probe_iterative_reader.py assess "$exp/cache" "$run/heads" "$run/panel"
+python scripts/summarize_iterative_reader.py "$exp/cache" "$run/panel"
+python scripts/stress_iterative_transfer.py predicate "$exp/cache" "$run/heads" "$run/diagnostics"
+python scripts/stress_iterative_transfer.py distance "$exp/cache" "$run/heads" "$run/diagnostics"
+```
+
+To rebuild the observations from raw histories and the registered frozen RWKV weights instead, run `python scripts/iterative_read_frontend.py "$run/cache" --split train` (likewise `dev` and `test`), then substitute `"$run/cache"` for `"$exp/cache"` in the reproduction commands. The trainer opens only `train` and `dev`. Cache truth is used for supervision, demonstrations and scoring, never as the reader's graph.
+
+On all 40 unseen maps, all three learned heads using isolated memory solved the withheld four-forward, one-back and mixed-stride rules. Resetting the cursor every round, at the same parameter count, scored zero on four-forward. A separate change in **which ID bit specifies the rule** dropped transfer to 369/840 paired answers. Streaming ten million physical distractor tokens preserved the answers on three other maps; it did not increase the number of facts stored. [Weights, observations, predictions, controls and stress data](experiments/binding-state/iterative-reader/).
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:

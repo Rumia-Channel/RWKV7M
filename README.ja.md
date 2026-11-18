@@ -218,6 +218,17 @@ bash scripts/compare_minipile.sh \
 
 したがって、現時点で主張できるのは「RWKV-7 風 recurrent core に state-level screening memory を追加する研究実装があり、その有効性をparameter control付きで検証できる」という範囲です。性能改善や長期記憶の有効性は、validation / benchmark / ablation の結果で示す必要があります。
 
+### 16駅の地図で、未訓練の問い方を試す
+
+[反復読み出し実験（論文 §22.19）](RWKV7M.paper.md#2219-読んだ値を次のアドレスへ戻し停止も学習する)では、凍結したRWKVと記憶から読んだ値を「答え」だけでなく「次に読む場所」として使います。推論器に渡すのは地図、答え付きの例3件、問いです。規則名・正解歩数・問いの答えは渡しません。学習済みの例をCPUで実行できます。
+
+```powershell
+$e = 'experiments/binding-state/iterative-reader'
+uv run python scripts/probe_iterative_reader.py predict "$e/heads/isolated-s42.safetensors" "$e/episode.json.example"
+```
+
+この例は問いによって `1, 4, 1` 回で停止します。新しい歩数やその組合せには転移しましたが、歩数を選ぶ**条件自体**を変えると正答率は43.9%に落ちました。自然文を解くモデルではありません。[学習済み重み・比較用予測・1,000万tokenでの測定](experiments/binding-state/iterative-reader/)と[再現コマンド](README.md#learning-where-to-read-next-and-when-to-stop)を公開しています。
+
 ## ファイルとディレクトリの扱い
 
 - `data/`: dataset を置く場所です。`.bin` / `.idx` は大きくなりやすいので git には含めません。
