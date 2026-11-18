@@ -157,6 +157,20 @@ For read/write screening from scratch, the write branch uses slot identity in it
 
 For proof-oriented runs, `write_rel_floor=0` tests true write rejection. Memory-bank update rates can also be specified as interpretable token half-lives with `--short-half-life-tokens`, `--mid-half-life-tokens`, and `--long-half-life-tokens`. The legacy `mu_*_max` behavior remains available when half-lives are omitted.
 
+## Symbolic equations: reasoning depth vs retention distance
+
+[Paper §22.13](RWKV7M.paper.md#2213-式の計算と保持を分けて測る) and [measured reference scores](experiments/symbolic-bindings/reference-panel.csv). This text benchmark asks for `A` or the product `ACD` over exact Gaussian integers. Ordered updates use the values at the time of assignment; shuffled single-definition problems allow forward references. Dependency depth and the number of trailing irrelevant statements are controlled separately. The same problem is tested both nearby and after distraction, and again with two input values swapped so the correct answer changes.
+
+```bash
+python scripts/benchmark_symbolic_bindings.py make out/equations --seed 42101 --families 16 --depths 2 8 24 --gaps 0 8 48
+python scripts/benchmark_symbolic_bindings.py baseline out/equations/questions.jsonl out/equations/suffix.jsonl --last-statements 16
+python scripts/benchmark_symbolic_bindings.py score out/equations/key.jsonl out/equations/suffix.jsonl
+```
+
+Omit `--last-statements 16` and use a new output filename for the full symbolic interpreter. With a tokenizer-compatible **text** export, run `python scripts/benchmark_symbolic_bindings.py rwkv out/equations/questions.jsonl out/equations/model.jsonl --checkpoint path/to/text.safetensors`, then `score` that file. The runner resets state for each prompt, reads the entire input and greedily returns the first newline- or EOS-terminated answer. Its per-row output records actual prompt and generated token counts. The published 128-ID retrieval checkpoints do not have a text vocabulary.
+
+For another runtime, pass **only** `questions.jsonl` (`id`, `prompt`) and return JSONL rows such as `{"id":"<unchanged question id>","prediction":"8+144i"}`. An absent answer, extra prose, or an unfinished expression is a miss. The score reports individual answers, both counterfactual worlds correct, and the same worlds correct at both the near and far distance. `--gaps` counts assignments, not tokens; use fresh seeds for held-out model evaluation.
+
 ## Comparison experiments
 
 For long-distance memory experiments on the **ordinary, no-screening RWKV**, see [paper §22.9–22.10](RWKV7M.paper.md#229-通常rwkvの保持距離入力できる長さと検索できる距離は違う) and the [paired observations and three portable parent checkpoints](experiments/retention/). These are synthetic key/value retrieval experiments, not natural-language context-length ratings. `python scripts/probe_retrieval_diversity.py` varies the number of distractor keys at a fixed distance and write count; `python scripts/benchmark_retrieval_readout.py` measures the time, temporary buffers and numerical cost of sharing a query prefix.
