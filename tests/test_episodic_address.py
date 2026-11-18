@@ -4,9 +4,10 @@ import jax.numpy as jnp
 import pytest
 from safetensors.numpy import save_file
 
-from rwkv7m.io.episodic_address import load_head, save_head
+from rwkv7m.io.episodic_address import COUNT_FORMAT, FORMAT, LEXICAL_FORMAT, load_head, save_head
 from rwkv7m.model.episodic_address import (BITS,CLASSES,FEATURES,SLOTS,empty_state,hard_episode,
     init_head,read_queries,soft_episode,write_window)
+from rwkv7m.model.episodic_lexical import lexical_features, word_counts
 
 
 def fixed_policy():
@@ -54,6 +55,38 @@ def test_saved_one_probe_policy_retains_output_and_rejects_invalid_normalization
     pp,m,s,meta=load_head(path); np.testing.assert_array_equal(m,mean); np.testing.assert_array_equal(s,scale)
     x=np.stack([obs(0,1,1),obs(1,1,0)])[None]
     np.testing.assert_array_equal(hard_episode(pp,x,np.ones((1,2),bool),x).answers,[[1,0]])
-    assert meta['arm']=='source' and meta['weight_sha']=='b'*64
+    assert meta['arm']=='source' and meta['weight_sha']=='b'*64 and meta['format']==FORMAT
     broken=tmp_path/'wrong.safetensors'; save_file(dict(pp,mean=m,scale=-s),str(broken),metadata=meta)
     with pytest.raises(ValueError,match='scale'): load_head(broken)
+
+
+def test_lexical_view_counts_repeats_and_shares_only_query_words_across_worlds(tmp_path):
+    hidden=np.random.default_rng(6).normal(size=(1,2,2,256)).astype(np.float32)
+    q=np.array([[[[34,34,34,20,20,3,3,3],[42,42,42,42,42,42,42,42]]]],np.int32)
+    v=lexical_features(hidden,q)
+    np.testing.assert_array_equal(v[...,:128],hidden[...,:128])
+    np.testing.assert_array_equal(v[:,0,:,128:],v[:,1,:,128:])
+    assert v[0,0,0,128+34]==3/8 and v[0,0,0,128+20]==2/8 and v[0,0,1,128+42]==1
+    np.testing.assert_array_equal(v,lexical_features(hidden,q[...,::-1]))
+    path=tmp_path/'lexical.safetensors'
+    save_head(path,fixed_policy(),np.zeros(256,np.float32),np.ones(256,np.float32),
+              arm='factors',weight_seed=43,weight_sha='e'*64,updates=960,lexical=True)
+    assert load_head(path)[3]['format']==LEXICAL_FORMAT
+
+
+def test_count_only_archive_has_no_backbone_and_reads_raw_words(tmp_path):
+    p=init_head(42,counts_only=True); tokens=np.arange(32,dtype=np.int32).reshape(1,4,8)
+    x=word_counts(tokens); valid=np.ones((1,4),bool)
+    p['out_bias']=p['out_bias'].at[2*BITS].set(10.)
+    before=hard_episode(p,x,valid,x[:,:2])
+    path=tmp_path/'counts.safetensors'; mean=np.zeros(128,np.float32)
+    save_head(path,p,mean,mean+1,arm='factors',weight_seed=42,weight_sha='none',counts_only=True,updates=960)
+    pp,_,_,meta=load_head(path); after=hard_episode(pp,x,valid,x[:,:2])
+    assert meta['format']==COUNT_FORMAT and meta['weight_sha']=='none'
+    assert sum(v.size for v in pp.values())==17721
+    np.testing.assert_array_equal(before.write_address,after.write_address)
+    np.testing.assert_array_equal(before.answers,after.answers)
+    # A 128-D head cannot be relabelled as a hybrid with an invented backbone.
+    broken=tmp_path/'wrong.safetensors'
+    save_file(dict(pp,mean=mean,scale=mean+1),str(broken),metadata={**meta,'format':LEXICAL_FORMAT,'weight_sha':'a'*64})
+    with pytest.raises(ValueError,match='shape'): load_head(broken)

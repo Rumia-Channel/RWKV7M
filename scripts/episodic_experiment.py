@@ -5,20 +5,28 @@ import re
 
 import numpy as np
 
-from episodic_scene_data import DEV_DRAWS, TEST_CELLS, TEST_DRAWS, TRAIN_CELLS, TRAIN_DRAWS
+from episodic_scene_data import CONFIRM_DRAWS, DEV_DRAWS, TEST_CELLS, TEST_DRAWS, TRAIN_CELLS, TRAIN_DRAWS
 from rwkv7m.model.episodic_address import CLASSES, FEATURES
+from rwkv7m.model.episodic_lexical import lexical_features, word_counts
 
 
-def load_cell(cache,split,weight,sha,surface,live,gap):
-    if split not in ('train','dev','test'): raise ValueError('unknown split')
-    if (surface not in (('seen','held','shift') if split=='test' else ('seen',)) or
-        (live,gap) not in (TEST_CELLS if split=='test' else TRAIN_CELLS)): raise ValueError('condition not registered')
+def load_cell(cache,split,weight,sha,surface,live,gap,*,lexical=False,counts_only=False):
+    if split not in ('train','dev','test','confirm'): raise ValueError('unknown split')
+    surfaces={'test':('seen','held','shift'),'confirm':('held',)}.get(split,('seen',))
+    if surface not in surfaces or (live,gap) not in (TRAIN_CELLS if split in ('train','dev') else TEST_CELLS):
+        raise ValueError('condition not registered')
+    if counts_only:
+        if lexical: raise ValueError('feature views are mutually exclusive')
+        # This control uses raw texts, not the neural cache or any RWKV observations.
+        from episodic_scene_features import _raw_cell, feature_table
+        raw=_raw_cell(split,surface,live,gap)
+        return feature_table(word_counts,raw.pop('raw_blocks'),raw.pop('raw_queries')) | raw
     path=Path(cache)/f'{split}-s{weight}-{surface}-k{live}-g{gap}.npz'
     with np.load(path,allow_pickle=False) as archive: d={name:archive[name] for name in archive.files}
     expected_meta={'split':split,'surface':surface,'live':live,'gap':gap,'format_version':1,'weight_seed':weight,'weight_sha':sha}
     if any(d[key].shape!=() or d[key].item()!=val for key,val in expected_meta.items()):
         raise ValueError(f'wrong condition, format or frozen RWKV association: {path}')
-    draws={'train':TRAIN_DRAWS,'dev':DEV_DRAWS,'test':TEST_DRAWS}[split]; families=24 if split=='train' else 8
+    draws={'train':TRAIN_DRAWS,'dev':DEV_DRAWS,'test':TEST_DRAWS,'confirm':CONFIRM_DRAWS}[split]; families=24 if split=='train' else 8
     rows=len(draws)*families; expected={(s,f) for s in draws for f in range(families)}
     if (set(zip(d['draw'].tolist(),d['family'].tolist(),strict=True))!=expected or
         d['input_sha'].shape!=(rows,) or any(not re.fullmatch('[0-9a-f]{64}',x) for x in d['input_sha'])):
@@ -41,4 +49,7 @@ def load_cell(cache,split,weight,sha,surface,live,gap):
         checksum=sha256(tokens[d['blocks'][i]].astype('<i4',copy=False).tobytes())
         checksum.update(tokens[d['queries'][i]].astype('<i4',copy=False).tobytes())
         if checksum.hexdigest()!=expected_sha: raise ValueError(f'public history/query digest mismatch in {path}')
+    if lexical:
+        d['features']=lexical_features(d['features'],tokens)
+        d['ordinary']=lexical_features(d['ordinary'],tokens[d['queries']][:,None])
     return d

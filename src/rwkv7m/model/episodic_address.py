@@ -14,12 +14,13 @@ FEATURES, BITS, CLASSES = 256, 6, 8
 SLOTS = 1 << BITS
 
 
-def init_head(seed, *, ordinary=False):
-    hidden, out = (68, CLASSES) if ordinary else (64, 2*BITS+1+CLASSES)
+def init_head(seed, *, ordinary=False, counts_only=False):
+    if ordinary and counts_only: raise ValueError('count-only control is a memory head')
+    hidden, out = (68, CLASSES) if ordinary else (118 if counts_only else 64, 2*BITS+1+CLASSES)
     rng = np.random.default_rng(seed)
     def matrix(d,n):
         return jnp.asarray(rng.normal(0.,d**-.5,size=(d,n)).astype(np.float32))
-    return {'input':matrix(FEATURES,hidden),'bias':jnp.zeros(hidden,jnp.float32),
+    return {'input':matrix(128 if counts_only else FEATURES,hidden),'bias':jnp.zeros(hidden,jnp.float32),
             'out':matrix(hidden,out),'out_bias':jnp.zeros(out,jnp.float32)}
 
 

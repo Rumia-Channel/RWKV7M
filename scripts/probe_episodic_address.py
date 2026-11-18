@@ -11,9 +11,10 @@ import numpy as np
 
 from benchmark_address_screening import checkpoints
 from episodic_experiment import load_cell
-from episodic_scene_data import TEST_CELLS, TEST_DRAWS
-from rwkv7m.io.episodic_address import PRIMARY_ARMS, load_head
+from episodic_scene_data import CONFIRM_DRAWS, TEST_CELLS, TEST_DRAWS
+from rwkv7m.io.episodic_address import ARMS, COUNT_FORMAT, FORMAT, LEXICAL_FORMAT, PRIMARY_ARMS, load_head
 from rwkv7m.model.episodic_address import BITS, empty_state, hard_episode, normalize, project, read_queries, write_window
+from rwkv7m.model.episodic_lexical import lexical_features, word_counts
 
 COUNT_FIELDS=('paired_answer','paired_source','paired_swapped_query','paired_oracle_window','paired_survived_write_address',
               'paired_queries','individual_queries','selected','correct_if_selected','no_write','wrong_address','overwritten','bad_decode',
@@ -81,32 +82,37 @@ def _evaluate(d,arm,p,mean,scale,k,g):
     yield None,counters,hit.sum(1)
 
 
-def _effects(directory,family_hits):
-    rng=np.random.default_rng(754919); nd=len(TEST_DRAWS); draws=rng.integers(nd,size=(10000,nd,1)); fam=rng.integers(8,size=(10000,nd,8))
+def _effects(directory,family_hits,surfaces,pairs,nd):
+    rng=np.random.default_rng(754919); draws=rng.integers(nd,size=(10000,nd,1)); fam=rng.integers(8,size=(10000,nd,8))
     with (directory/'paired-effects.csv').open('x',encoding='utf8',newline='') as fp:
         wr=csv.writer(fp,lineterminator='\n'); wr.writerow(('surface','live','gap_windows','treatment','reference','delta_pp','lower95_pp','upper95_pp','maps','weight_seeds'))
-        for surf in ('seen','held','shift'):
+        for surf in surfaces:
             for k,g in TEST_CELLS:
-                for a,c in (('source','endpoint'),('source','ordinary'),('endpoint','ordinary')):
+                for a,c in pairs:
                     diff=np.stack([family_hits[s,surf,k,g,a]-family_hits[s,surf,k,g,c] for s in (42,43,44)]).mean(0)*50.
                     lo,hi=np.quantile(diff[draws,fam].mean(axis=(1,2)),[.025,.975]); wr.writerow((surf,k,g,a,c,diff.mean(),lo,hi,nd*8,3))
 
 
-def assess(cache,heads,output,*,factors_only=False):
-    arms=('factors',) if factors_only else PRIMARY_ARMS
+def assess(cache,heads,output,*,factors_only=False,confirm=False,lexical=False,counts_only=False):
+    if counts_only and (not confirm or lexical): raise ValueError('the counts-only control uses the confirmation panel')
+    arms=('factors',) if (factors_only or counts_only) else (ARMS if confirm else PRIMARY_ARMS)
+    surfaces=('held',) if confirm else ('seen','held','shift')
+    split='confirm' if confirm else 'test'; nd=len(CONFIRM_DRAWS if confirm else TEST_DRAWS)
+    view_format=COUNT_FORMAT if counts_only else LEXICAL_FORMAT if lexical else FORMAT
     output.mkdir(parents=True,exist_ok=True); summaries=[]; family_hits={}; identical={}
     with (output/'readouts.csv').open('x',encoding='utf8',newline='') as fp:
         wr=csv.DictWriter(fp,fieldnames=RAW,lineterminator='\n'); wr.writeheader()
-        for seed,_,sha in checkpoints():
+        models=((s,None,'none') for s in (42,43,44)) if counts_only else checkpoints()
+        for seed,_,sha in models:
             fitted={}
             for arm in arms:
                 path=heads/f'{arm}-s{seed}.safetensors'; p,m,z,meta=load_head(path)
-                if (meta['arm'],meta['weight_seed'],meta['weight_sha'],meta['updates'])!=(arm,str(seed),sha,'960'):
+                if (meta['arm'],meta['weight_seed'],meta['weight_sha'],meta['updates'],meta['format'])!=(arm,str(seed),sha,'960',view_format):
                     raise ValueError(f'wrong registered fit: {path}')
                 fitted[arm]=(p,m,z,digest(path))
-            for surf in ('seen','held','shift'):
+            for surf in surfaces:
                 for k,g in TEST_CELLS:
-                    d=load_cell(cache,'test',seed,sha,surf,k,g)
+                    d=load_cell(cache,split,seed,sha,surf,k,g,lexical=lexical,counts_only=counts_only)
                     ids=tuple(zip(d['draw'],d['family'],d['input_sha'],strict=True)); key=(surf,k,g)
                     if identical.setdefault(key,ids)!=ids: raise ValueError('raw histories/questions change between weights')
                     order=np.lexsort((d['family'],d['draw']))
@@ -115,7 +121,7 @@ def assess(cache,heads,output,*,factors_only=False):
                         for row,counts,h in _evaluate(d,arm,p,m,z,k,g):
                             if row is not None: wr.writerow({**base,**row})
                             else:
-                                summaries.append({**base,**counts}); family_hits[seed,surf,k,g,arm]=h[order].reshape(len(TEST_DRAWS),8)
+                                summaries.append({**base,**counts}); family_hits[seed,surf,k,g,arm]=h[order].reshape(nd,8)
             fp.flush()
     with (output/'scores.csv').open('x',encoding='utf8',newline='') as fp:
         wr=csv.DictWriter(fp,tuple(summaries[0]),lineterminator='\n'); wr.writeheader(); wr.writerows(summaries)
@@ -123,19 +129,35 @@ def assess(cache,heads,output,*,factors_only=False):
         wr=csv.writer(fp,lineterminator='\n'); wr.writerow(('arm','weight_seed','surface','conditions','answer_gate','source_gate','joint_gate'))
         for seed in (42,43,44):
             for arm in arms:
-                for surf in ('seen','held','shift'):
+                for surf in surfaces:
                     rows=[r for r in summaries if (r['weight_seed'],r['arm'],r['surface'])==(seed,arm,surf)]
                     def passes(key): return int(all(10*r[key]>=9*r['paired_queries'] for r in rows))
                     aa=passes('paired_answer'); ss='' if arm=='ordinary' else passes('paired_source')
                     wr.writerow((arm,seed,surf,len(rows),aa,ss,'' if ss=='' else int(aa and ss)))
-    if not factors_only: _effects(output,family_hits)
+    if not (confirm or factors_only):
+        _effects(output,family_hits,surfaces,(('source','endpoint'),('source','ordinary'),('endpoint','ordinary')),nd)
+    return family_hits
+
+
+def replicate(cache,hidden_heads,lexical_heads,output):
+    paired={}
+    for view,heads in (('hidden',hidden_heads),('lexical',lexical_heads)):
+        hits=assess(cache,heads,output/view,confirm=True,lexical=view=='lexical')
+        for (s,surf,k,g,arm),hit in hits.items(): paired[s,surf,k,g,arm+'/'+view]=hit
+    _effects(output,paired,('held',),[(a+'/lexical',a+'/hidden') for a in ARMS],len(CONFIRM_DRAWS))
 
 
 def predict(head,source):
-    from episodic_scene_features import WindowEncoder
     p,mean,scale,meta=load_head(head); seed=int(meta['weight_seed'])
-    _,path,sha=next(t for t in checkpoints() if t[0]==seed)
-    if sha!=meta['weight_sha']: raise ValueError('wrong frozen RWKV for this head')
+    if meta['format']==COUNT_FORMAT:
+        def local(tokens): return normalize(word_counts(tokens),mean,scale)
+    else:
+        from episodic_scene_features import WindowEncoder
+        _,path,sha=next(t for t in checkpoints() if t[0]==seed)
+        if sha!=meta['weight_sha']: raise ValueError('wrong frozen RWKV for this head')
+        enc=WindowEncoder(path)
+        def features(h,t): return normalize(lexical_features(h,t) if meta['format']==LEXICAL_FORMAT else h,mean,scale)
+        def local(tokens): return features(enc.local(tokens),tokens)
     if source=='-': data=json.load(sys.stdin)
     else:
         with open(source,encoding='utf8') as f: data=json.load(f)
@@ -143,15 +165,15 @@ def predict(head,source):
     blocks,q=(np.asarray(data[name]) for name in ('blocks','queries'))
     if (blocks.ndim!=2 or not len(blocks) or blocks.shape[1]!=8 or q.shape!=(2,8) or
         any(x.dtype.kind not in 'iu' or np.any((x<0)|(x>=128)) for x in (blocks,q))): raise ValueError('expected 8-token windows and two queries')
-    enc=WindowEncoder(path); blocks=blocks.astype(np.int32); q=q.astype(np.int32)
+    blocks=blocks.astype(np.int32); q=q.astype(np.int32)
     if meta['arm']=='ordinary':
-        x=normalize(enc.ordinary(blocks[None],q[None]),mean,scale); ans=np.asarray(project(p,x).argmax(-1))[0]; addr=None
+        x=features(enc.ordinary(blocks[None],q[None]),q[None]); ans=np.asarray(project(p,x).argmax(-1))[0]; addr=None
     else:
         s=empty_state(1)
         for i in range(0,len(blocks),32):
-            chunk=normalize(enc.local(blocks[i:i+32]),mean,scale)
+            chunk=local(blocks[i:i+32])
             for j in range(len(chunk)): s,_,_=write_window(p,s,chunk[j:j+1])
-        ans,addr=read_queries(p,s,normalize(enc.local(q)[None],mean,scale)); ans=np.asarray(ans)[0]; addr=np.asarray(addr)[0].tolist()
+        ans,addr=read_queries(p,s,local(q)[None]); ans=np.asarray(ans)[0]; addr=np.asarray(addr)[0].tolist()
     print(json.dumps({'answers':ans.tolist(),'read_addresses':addr},allow_nan=False))
 
 
@@ -159,6 +181,12 @@ if __name__=='__main__':
     ap=argparse.ArgumentParser(description=__doc__); sub=ap.add_subparsers(dest='mode',required=True)
     e=sub.add_parser('assess'); e.add_argument('cache',type=Path); e.add_argument('heads',type=Path); e.add_argument('output',type=Path)
     e.add_argument('--factors-only',action='store_true',help='score the conditional cue-supervised head only')
+    rep=sub.add_parser('replicate',help='paired comparison on fresh held compositions, never the design panel')
+    for field in ('cache','hidden_heads','lexical_heads','output'): rep.add_argument(field,type=Path)
+    ctrl=sub.add_parser('counts-control',help='score the retrained, no-RWKV factors policy on the confirmation panel')
+    ctrl.add_argument('heads',type=Path); ctrl.add_argument('output',type=Path)
     e=sub.add_parser('predict'); e.add_argument('head',type=Path); e.add_argument('input'); a=ap.parse_args()
     if a.mode=='assess': assess(a.cache,a.heads,a.output,factors_only=a.factors_only)
+    elif a.mode=='replicate': replicate(a.cache,a.hidden_heads,a.lexical_heads,a.output)
+    elif a.mode=='counts-control': assess(None,a.heads,a.output,confirm=True,counts_only=True)
     else: predict(a.head,a.input)

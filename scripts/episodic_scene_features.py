@@ -218,14 +218,14 @@ def public_sha(blocks, queries):
     return digest.hexdigest()
 
 
-def _feature_table(encoder, blocks, queries):
+def feature_table(encode, blocks, queries):
     """Content-deduplicate public utterances within exactly one condition."""
     family_count, worlds, count, _ = blocks.shape
     combined = np.concatenate((blocks.reshape(-1, 8), queries.reshape(-1, 8)))
     unique, inverse = np.unique(combined, axis=0, return_inverse=True)
     boundary = blocks.size // 8
     return dict(
-        features=encoder.local(unique),
+        features=encode(unique),
         feature_tokens=unique.astype(np.int32, copy=False),
         blocks=inverse[:boundary].reshape(family_count, worlds, count).astype(np.int32),
         queries=inverse[boundary:].reshape(family_count, 2).astype(np.int32),
@@ -268,6 +268,8 @@ def _split_plan(split):
         return scene_data.DEV_DRAWS, 8, scene_data.TRAIN_CELLS, ('seen',)
     if split == 'test':
         return scene_data.TEST_DRAWS, 8, scene_data.TEST_CELLS, ('seen', 'held', 'shift')
+    if split == 'confirm':
+        return scene_data.CONFIRM_DRAWS, 8, scene_data.TEST_CELLS, ('held',)
     raise ValueError(f'unknown cache split: {split}')
 
 
@@ -285,7 +287,7 @@ def _source_provenance():
 
 def _raw_cell(split, surface, live, gap):
     draws, families, _, _ = _split_plan(split)
-    generation_split = split if split != 'test' else ('seen' if surface == 'seen' else 'held')
+    generation_split = split if split in ('train','dev') else ('seen' if surface == 'seen' else 'held')
     values = {name: [] for name in ('raw_blocks', 'raw_queries', 'support', 'answers',
                                   'draw', 'family', 'input_sha')}
     for draw in draws:
@@ -452,7 +454,7 @@ def make_cache(cache, split, seed=None, *, surfaces=None, cells=None, reuse_exis
                     public = raw[surface]
                     before = dict(encoder.cost)
                     start = perf_counter()
-                    arrays = _feature_table(encoder, public['raw_blocks'], public['raw_queries'])
+                    arrays = feature_table(encoder.local, public['raw_blocks'], public['raw_queries'])
                     local_seconds = perf_counter() - start
                     cost = {name: encoder.cost[name] - before[name] for name in COST_COUNTERS}
                     for name, value in ordinary_cost.items():
@@ -495,7 +497,7 @@ def make_cache(cache, split, seed=None, *, surfaces=None, cells=None, reuse_exis
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('cache', type=Path)
-    parser.add_argument('--split', choices=('train', 'dev', 'test'), required=True)
+    parser.add_argument('--split', choices=('train', 'dev', 'test', 'confirm'), required=True)
     parser.add_argument('--seed', type=int, choices=(42, 43, 44), action='append',
                         help='registered frozen weight seed; repeat to select several (default: all)')
     parser.add_argument('--surface', choices=('seen', 'held', 'shift'), action='append',
