@@ -161,7 +161,14 @@ For proof-oriented runs, `write_rel_floor=0` tests true write rejection. Memory-
 
 For long-distance memory experiments on the **ordinary, no-screening RWKV**, see [paper §22.9–22.10](RWKV7M.paper.md#229-通常rwkvの保持距離入力できる長さと検索できる距離は違う) and the [paired observations and three portable parent checkpoints](experiments/retention/). These are synthetic key/value retrieval experiments, not natural-language context-length ratings. `python scripts/probe_retrieval_diversity.py` varies the number of distractor keys at a fixed distance and write count; `python scripts/benchmark_retrieval_readout.py` measures the time, temporary buffers and numerical cost of sharing a query prefix.
 
-Run the matched study with `python scripts/train_retrieval_frontier.py out/frontier-study`. It trains three seeds per arm, taking the next seed's completed adaptive trace for the replay control. To pause after a calibration boundary, pass `--until-step 24`; repeat the command without it to resume the optimizer, policy and data position. Final assessment reads portable weights only (`python scripts/score_frontier_panel.py --help`).
+To pause and resume the matched study, run these commands in order:
+
+```bash
+python scripts/train_retrieval_frontier.py out/frontier-study --arm adaptive --seed 42 --until-step 24
+python scripts/train_retrieval_frontier.py out/frontier-study
+```
+
+The first command checkpoints only adaptive seed 42. The second restores its optimizer, policy and data position, then completes all three seeds per arm. For an uninterrupted run, use only the second command. The replay control requires its donor's full 96-step adaptive trace. Final assessment reads portable weights only (`python scripts/score_frontier_panel.py --help`).
 
 The adaptive schedule did not beat the controls. For the independently tested short-retention tradeoff, use the [three parent-midpoint exports](experiments/retention/midpoint/) or compare them with [every original fine-tune](experiments/retention/trained/). Recompute the decision with `python scripts/analyze_retrieval_frontier.py --midpoint experiments/retention/midpoint-families.csv`. These exports use synthetic retrieval IDs; they are not text-generation checkpoints.
 
