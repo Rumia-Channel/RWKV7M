@@ -17,11 +17,22 @@ def analyze(path):
     with Path(path).open(encoding='utf-8', newline='') as stream:
         rows = list(csv.DictReader(stream))
     counts = {}
+    matched_inputs = {}
     for r in rows:
         key = (r['task'], int(r['gap']), r['arm'], int(r['weight_seed']), int(r['family']))
         hits, total, invalid = (int(r[k]) for k in ('both_correct', 'key_pairs', 'nonfinite'))
         if key in counts or key[2] not in ARMS or not (0 <= hits <= total and total > 0 and 0 <= invalid <= 2 * total):
             raise ValueError(f'invalid or duplicate result cell: {key}')
+        if 'input_sha256' in r:
+            labels, predictions = (np.asarray([list(map(int, r[f'world{w}_{col}'].split())) for w in (0, 1)])
+                                   for col in ('labels', 'predictions'))
+            if (labels.shape != (2, total) or predictions.shape != labels.shape or
+                    (predictions == labels).all(axis=0).sum() != hits or (predictions == -1).sum() != invalid):
+                raise ValueError(f'raw predictions disagree with the reported counts: {key}')
+            family = key[0], key[1], key[4]
+            identity = r['input_sha256'], r['world0_labels'], r['world1_labels']
+            if matched_inputs.setdefault(family, identity) != identity:
+                raise ValueError(f'unpaired histories or labels for family {family}')
         counts[key] = hits, total, invalid
     seeds = sorted({k[3] for k in counts})
     conditions = sorted({k[:2] for k in counts})

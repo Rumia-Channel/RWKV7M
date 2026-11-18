@@ -85,3 +85,14 @@ def test_schedule_audit_distinguishes_self_replay_from_cross_seed(monkeypatch, t
     write_replay(True)
     with pytest.raises(ValueError, match='registered donor'):
         audit(path)
+
+
+def test_unmatched_histories_cannot_enter_a_paired_comparison(score):
+    rows = records()
+    for row in rows:
+        hits = row['both_correct']
+        row.update(input_sha256='common', world0_labels=' '.join(['32'] * 8), world1_labels=' '.join(['33'] * 8),
+                   world0_predictions=' '.join(['32'] * 8), world1_predictions=' '.join(['33'] * hits + ['34'] * (8 - hits)))
+    rows[-1]['input_sha256'] = 'different'
+    with pytest.raises(ValueError, match='unpaired histories'):
+        score(rows)
