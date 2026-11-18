@@ -1,0 +1,3 @@
+endpoint,gain_pairs,pairs,rate_difference,family_ci95_low,family_ci95_high
+old,159,384,0.4140625,0.375,0.453125
+versioned_equation,96,96,1.0,1.0,1.0

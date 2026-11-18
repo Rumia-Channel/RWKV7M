@@ -1,0 +1,4 @@
+seed,rewritten_rate,old_rate,copied_rate,near_delta,overwrite_delta,nonfinite,per_seed_pass,pooled_old_gain,pooled_equation_gain,advance
+42,1.0,1.0,1.0,0.0,0.0,0,True,0.4140625,1.0,True
+43,1.0,1.0,1.0,0.02734375,0.0,0,True,0.4140625,1.0,True
+44,1.0,1.0,1.0,0.015625,0.015625,0,True,0.4140625,1.0,True
