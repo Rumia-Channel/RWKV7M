@@ -152,6 +152,16 @@ def marked_write(params, state, x, valid, addr):
 
 
 @jax.jit
+def read_lanes(state, lanes, addr):
+    """One (lane, slot) gather per requested question, not a copy of each lane's bank."""
+    safe = (addr >= 0) & (addr < SLOTS)
+    slot = jnp.where(safe, addr, 0).astype(jnp.int32)
+    prediction = state.bank[lanes, slot].argmax(axis=-1).astype(jnp.int32)
+    answers = jnp.where(safe & state.occupied[lanes, slot], prediction, -1)
+    return answers, jnp.where(safe, slot, -1)
+
+
+@jax.jit
 def marked_read(state, addr):
     """Read one indexed cell per [lane, query], without mutating the bank."""
     addr = jnp.asarray(addr)
@@ -159,12 +169,7 @@ def marked_read(state, addr):
         raise ValueError('expected read routes [B,Q] and a matching bank')
     if addr.dtype.kind not in 'iu':
         raise ValueError('marked routes must be integers')
-    safe = (addr >= 0) & (addr < SLOTS)
-    index = jnp.where(safe, addr, 0).astype(jnp.int32)
-    lanes = jnp.arange(state.bank.shape[0])[:, None]
-    prediction = state.bank[lanes, index].argmax(axis=-1).astype(jnp.int32)
-    answers = jnp.where(safe & state.occupied[lanes, index], prediction, -1)
-    return answers, jnp.where(safe, index, -1)
+    return read_lanes(state, jnp.arange(state.bank.shape[0])[:, None], addr)
 
 
 @jax.jit
