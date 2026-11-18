@@ -2986,6 +2986,23 @@ python scripts/analyze_retrieval_frontier.py experiments/retention/frontier-fami
 
 評価する前に、直接入力seed 96175、上書きseed 96176、それぞれ新しい64履歴対に固定する。3親、それぞれの元の固定学習と中点を同一入力で比較。中点を保持改善候補とする条件は、①距離128・他key16書込みで親を全seedで上回り平均+5ポイント以上、②距離0と短距離上書きの両方で親に対して各seed −1ポイント以内、③全条件で非有限0。元の固定学習との得失も併記する。64履歴対に増やす目的は、2問の上書き1失敗が1.56ポイントとなる旧パネルより短距離ガードを細かく測ること（今回は0.78ポイント）。
 
+| 新規64履歴対 × 3初期値 | 親 | 均等固定 | 親との中点 |
+| --- | ---: | ---: | ---: |
+| 他key再書込み・距離128 | 331/1,536 (21.55%) | 596/1,536 (38.80%) | 471/1,536 (30.66%) |
+| filler・距離0 | 1,501/1,536 | 1,509/1,536 | 1,510/1,536 |
+| 真の上書き・距離32 | 383/384 | 384/384 | 384/384 |
+| 他key再書込み・距離1,024 | 0/1,536 | 3/1,536 | 1/1,536 |
+
+**中点はこの追試の採用条件を満たした。** 主指標の親との差は平均+9.11ポイント（seed 42/43/44で+6.05、+3.13、+18.16）。距離0の各seed差は+0.39、+1.76、−0.39ポイント、上書きは0、+0.78、0。全条件で非有限0。対して元の固定方式は平均+17.25ポイントと検索をより改善したが、seed 44の距離0が−1.17ポイントで短距離条件に届かなかった。中点は最大の検索成績を得る手法ではない。親の短期保持を守る制約との交換で、固定に対する主指標は8.14ポイント低い。一般言語モデルの改善や長距離保証ではなく、同じ3初期値の合成課題に限った候補とする。
+
+[生の両世界の予測](experiments/retention/midpoint-families.csv)、[評価した中点3個](experiments/retention/midpoint/)、[比較用に公開した元の9重み](experiments/retention/trained/)。以下は係数探索なしで同じパラメーターを生成し、公開された判定を再計算する例。
+
+```bash
+python scripts/retrieval_parent_midpoint.py experiments/retention/parents/long-s42.safetensors \
+  experiments/retention/trained/fixed-s42.safetensors out/midpoint-s42.safetensors
+python scripts/analyze_retrieval_frontier.py --midpoint experiments/retention/midpoint-families.csv
+```
+
 ---
 
 # 23. Statistical Protocol

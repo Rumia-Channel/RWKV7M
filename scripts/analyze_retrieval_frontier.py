@@ -13,15 +13,17 @@ PRIMARY = ('other-writes', 128)
 SHORT = (('filler', 0), ('overwrite', 32))
 
 
-def analyze(path):
+def _read_counts(path, arms, *, data_seeds=None):
     with Path(path).open(encoding='utf-8', newline='') as stream:
         rows = list(csv.DictReader(stream))
     counts = {}
     matched_inputs = {}
     for r in rows:
         key = (r['task'], int(r['gap']), r['arm'], int(r['weight_seed']), int(r['family']))
+        if data_seeds is not None and int(r['data_seed']) != data_seeds.get(key[0]):
+            raise ValueError(f'wrong held-out cohort: {key}')
         hits, total, invalid = (int(r[k]) for k in ('both_correct', 'key_pairs', 'nonfinite'))
-        if key in counts or key[2] not in ARMS or not (0 <= hits <= total and total > 0 and 0 <= invalid <= 2 * total):
+        if key in counts or key[2] not in arms or not (0 <= hits <= total and total > 0 and 0 <= invalid <= 2 * total):
             raise ValueError(f'invalid or duplicate result cell: {key}')
         if 'input_sha256' in r:
             labels, predictions = (np.asarray([list(map(int, r[f'world{w}_{col}'].split())) for w in (0, 1)])
@@ -34,6 +36,11 @@ def analyze(path):
             if matched_inputs.setdefault(family, identity) != identity:
                 raise ValueError(f'unpaired histories or labels for family {family}')
         counts[key] = hits, total, invalid
+    return counts
+
+
+def analyze(path):
+    counts = _read_counts(path, ARMS)
     seeds = sorted({k[3] for k in counts})
     conditions = sorted({k[:2] for k in counts})
     if len(seeds) != 3 or not {PRIMARY, *SHORT}.issubset(conditions):
@@ -128,12 +135,42 @@ def audit_schedules(path):
     return dict(steps=96, anchor_updates=24, nonanchor_updates=72, adaptive_matching_nonanchor=matched)
 
 
+def analyze_midpoint(path):
+    arms = ('parent', 'fixed', 'midpoint')
+    seeds = (42, 43, 44)
+    counts = _read_counts(path, arms, data_seeds={'filler': 96175, 'other-writes': 96175, 'overwrite': 96176})
+    conditions = [(task, d) for task in ('filler', 'other-writes') for d in (0, 64, 128, 256, 1024)] + [('overwrite', 32)]
+    if len(counts) != len(arms) * len(seeds) * len(conditions) * 64:
+        raise ValueError('the independent replication requires 64 matched families per arm, seed and condition')
+    rates = {}; cells = []; invalid = {arm: 0 for arm in arms}
+    for task, gap in conditions:
+        for arm in arms:
+            cube = np.asarray([[counts[task, gap, arm, seed, f] for f in range(64)] for seed in seeds])
+            per_family = 2 if task == 'overwrite' else 8
+            if not (cube[..., 1] == per_family).all(): raise ValueError('wrong paired-question denominator')
+            hits = cube[..., 0].sum(axis=1)
+            rates[task, gap, arm] = 100 * hits / (64 * per_family)
+            invalid[arm] += int(cube[..., 2].sum())
+            cells.append(dict(task=task, gap=gap, arm=arm, correct_by_seed=hits.tolist(),
+                              both_correct=int(hits.sum()), key_pairs=int(cube[..., 1].sum())))
+    comparisons = {}
+    for arm in ('fixed', 'midpoint'):
+        delta = rates[*PRIMARY, arm] - rates[*PRIMARY, 'parent']
+        short = {f'{t}:{d}': (rates[t, d, arm] - rates[t, d, 'parent']).tolist() for t, d in SHORT}
+        passed = delta.min() > 0 and delta.mean() >= 5 and all(min(v) >= -1 for v in short.values()) and invalid[arm] == 0
+        comparisons[arm] = dict(primary_mean_pp=float(delta.mean()), primary_by_seed_pp=delta.tolist(),
+                                short_by_seed_pp=short, pass_gate=bool(passed))
+    return dict(primary_against_parent=comparisons, nonfinite_by_arm=invalid, cells=cells)
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('family_csv', type=Path)
+    p.add_argument('--midpoint', action='store_true', help='apply the independent §22.12 replication gate')
     p.add_argument('--schedule-csv', type=Path, help='audit the paid runs and the cross-seed donor assignment')
     args = p.parse_args()
-    result = analyze(args.family_csv)
+    if args.midpoint and args.schedule_csv: p.error('the midpoint has no training schedule')
+    result = analyze_midpoint(args.family_csv) if args.midpoint else analyze(args.family_csv)
     if args.schedule_csv:
         result['schedule_audit'] = audit_schedules(args.schedule_csv)
     print(json.dumps(result, indent=2, allow_nan=False))

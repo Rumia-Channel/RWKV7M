@@ -163,6 +163,8 @@ For long-distance memory experiments on the **ordinary, no-screening RWKV**, see
 
 Run the matched study with `python scripts/train_retrieval_frontier.py out/frontier-study`. It trains three seeds per arm, taking the next seed's completed adaptive trace for the replay control. To pause after a calibration boundary, pass `--until-step 24`; repeat the command without it to resume the optimizer, policy and data position. Final assessment reads portable weights only (`python scripts/score_frontier_panel.py --help`).
 
+The adaptive schedule did not beat the controls. For the independently tested short-retention tradeoff, use the [three parent-midpoint exports](experiments/retention/midpoint/) or compare them with [every original fine-tune](experiments/retention/trained/). Recompute the decision with `python scripts/analyze_retrieval_frontier.py --midpoint experiments/retention/midpoint-families.csv`. These exports use synthetic retrieval IDs; they are not text-generation checkpoints.
+
 To download MiniPile, check out `RWKV-Vibe/RWKV-LM-V7`, and build upstream/local comparison checkpoints with a matched token budget:
 
 ```bash
