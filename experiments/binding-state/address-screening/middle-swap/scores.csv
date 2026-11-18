@@ -1,0 +1,16 @@
+seed,arm,changed_both,changed_pairs,live_both,live_pairs,both_outputs_both_worlds,program_pairs,different_gold_program_pairs
+42,coupled,0,64,0,128,0,32,32
+42,isolated,64,64,128,128,32,32,32
+42,register,64,64,128,128,32,32,32
+42,literal,64,64,128,128,32,32,32
+42,ignore_middle,0,64,64,128,0,32,32
+43,coupled,0,64,0,128,0,32,32
+43,isolated,64,64,128,128,32,32,32
+43,register,64,64,128,128,32,32,32
+43,literal,64,64,128,128,32,32,32
+43,ignore_middle,0,64,64,128,0,32,32
+44,coupled,0,64,0,128,0,32,32
+44,isolated,64,64,128,128,32,32,32
+44,register,64,64,128,128,32,32,32
+44,literal,64,64,128,128,32,32,32
+44,ignore_middle,0,64,64,128,0,32,32

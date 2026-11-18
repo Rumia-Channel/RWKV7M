@@ -235,6 +235,8 @@ The first command runs on CPU with the three published CE checkpoints. It emits 
 
 To recompute the decision and paired history-family intervals without loading JAX or a model, run `python scripts/score_address_screening.py experiments/binding-state/address-screening out/address-rescore`. The intervals resample 32 families together across the three frozen checkpoints; keys and counterfactual worlds are not independent trials.
 
+`python scripts/probe_middle_copy_swap.py out/address-middle-swap` runs a separate causal check on fresh families. Both worlds start identically, all overwritten sources get one neutral value, and only two destination tokens in stage 12 are swapped. The next 1,024 distractor tokens, 12 remaining stages, and questions are identical. [Raw paired answers and scores](experiments/binding-state/address-screening/middle-swap/) distinguish tracking that middle transfer from exploiting a prefix, suffix or poison-value tag.
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:

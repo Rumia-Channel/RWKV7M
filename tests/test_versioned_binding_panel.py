@@ -214,3 +214,20 @@ def test_malformed_events_and_missing_keys():
 def test_the_reference_only_accepts_matching_batches():
     with pytest.raises(ValueError):
         literal_reference(np.zeros((2, 4), np.int32), np.zeros((3, 2), np.int32))
+
+
+def test_only_midchain_destinations_explain_the_counterfactual_answers():
+    from probe_middle_copy_swap import measure, middle_swap_case
+
+    case, true_reads = middle_swap_case(families=4)
+    _, depth, _, _, history, questions, _, _ = case
+    np.testing.assert_array_equal(questions[:, 0], questions[:, 1])
+    for w0, w1 in history:
+        starts = np.flatnonzero(w0 == COPY)
+        pair = starts[(depth//2 - 1)*CHAINS:][:2] + 1
+        np.testing.assert_array_equal(np.flatnonzero(w0 != w1), pair)
+        np.testing.assert_array_equal(w0[pair], w1[pair[::-1]])
+        assert np.unique(w0[starts + 5]).size == 1  # No poison token identifies a lineage.
+    changed, n, _, _, correct, programs, diff = measure(case, np.repeat(true_reads[:, :1], 2, axis=1))
+    assert (changed, n) == (0, 8)
+    assert (correct, programs, diff) == (0, 4, 4)
