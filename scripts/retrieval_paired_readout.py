@@ -8,8 +8,8 @@ import numpy as np
 from rwkv7m.cli.prepare_retrieval import ANSWER_MARKER_TOKEN, QUERY_TOKEN
 
 
-@nnx.jit
-def _prefill_and_fork(model, prefix, queries, rwkv_state, screen_state):
+def branched_final_logits(model, prefix, queries, rwkv_state, screen_state):
+    """Read one history per family/world; fork only for the final query and head."""
     families, worlds, questions, suffix = queries.shape
     _, rwkv_state, screen_state, _ = model.compute_recurrent_hidden(
         prefix.reshape(families * worlds, -1), rwkv_state, screen_state,
@@ -21,6 +21,10 @@ def _prefill_and_fork(model, prefix, queries, rwkv_state, screen_state):
     )
     logits = model.compute_logits(hidden[:, -1:, :])[:, 0, :]
     return logits.astype(jnp.float32).reshape(families, worlds, questions, -1)
+
+
+# Lift the graph only at the inference boundary, not inside another training transform.
+compiled_branched_logits = nnx.jit(branched_final_logits)
 
 
 def paired_final_logits(model, ids, rwkv_state, screen_state):
@@ -37,4 +41,4 @@ def paired_final_logits(model, ids, rwkv_state, screen_state):
             raise ValueError('query branches do not share a prefix')
     if not (np.all(queries[..., 0] == QUERY_TOKEN) and np.all(queries[..., 2] == ANSWER_MARKER_TOKEN)):
         raise ValueError('expected [QUERY, key, ANSWER_MARKER] at every scored position')
-    return _prefill_and_fork(model, jnp.asarray(prefix), jnp.asarray(queries), rwkv_state, screen_state)
+    return compiled_branched_logits(model, jnp.asarray(prefix), jnp.asarray(queries), rwkv_state, screen_state)
