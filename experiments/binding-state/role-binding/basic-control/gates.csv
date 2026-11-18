@@ -1,0 +1,17 @@
+arm,form,surface,live,seed,conditions,answer_gate,source_gate,joint_gate
+marked-count,midterm,midterm,12,42,2,1,1,1
+marked-count,midterm,midterm,12,43,2,1,1,1
+marked-count,midterm,midterm,12,44,2,1,1,1
+marked-count,midterm,midterm,12,all,6,1,1,1
+marked-rwkv,midterm,midterm,12,42,2,1,1,1
+marked-rwkv,midterm,midterm,12,43,2,0,0,0
+marked-rwkv,midterm,midterm,12,44,2,0,0,0
+marked-rwkv,midterm,midterm,12,all,6,0,0,0
+marked-count,midterm,familiar,12,42,2,1,1,1
+marked-count,midterm,familiar,12,43,2,1,1,1
+marked-count,midterm,familiar,12,44,2,1,1,1
+marked-count,midterm,familiar,12,all,6,1,1,1
+marked-rwkv,midterm,familiar,12,42,2,1,1,1
+marked-rwkv,midterm,familiar,12,43,2,0,0,0
+marked-rwkv,midterm,familiar,12,44,2,0,0,0
+marked-rwkv,midterm,familiar,12,all,6,0,0,0

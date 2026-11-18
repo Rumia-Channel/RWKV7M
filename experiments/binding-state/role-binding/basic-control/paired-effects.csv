@@ -1,0 +1,13 @@
+form,surface,live,gap,treatment,reference,metric,delta_pp,lower95_pp,upper95_pp,resamples,draws,families_per_draw,seeds,questions_per_family
+midterm,midterm,12,0,marked-rwkv,marked-count,answer_success,-9.583333333333332,-18.33333333333333,-2.4999999999999996,10000,5,8,3,2
+midterm,midterm,12,0,marked-rwkv,marked-count,source_success,-8.749999999999998,-17.499999999999996,-2.083333333333333,10000,5,8,3,2
+midterm,midterm,12,0,marked-rwkv,marked-count,joint_success,-9.583333333333332,-18.33333333333333,-2.4999999999999996,10000,5,8,3,2
+midterm,midterm,12,128,marked-rwkv,marked-count,answer_success,-18.749999999999996,-29.583333333333325,-9.166666666666666,10000,5,8,3,2
+midterm,midterm,12,128,marked-rwkv,marked-count,source_success,-17.916666666666664,-28.760416666666657,-8.333333333333332,10000,5,8,3,2
+midterm,midterm,12,128,marked-rwkv,marked-count,joint_success,-18.749999999999996,-29.583333333333325,-9.166666666666666,10000,5,8,3,2
+midterm,familiar,12,0,marked-rwkv,marked-count,answer_success,-9.583333333333332,-15.833333333333332,-4.166666666666666,10000,5,8,3,2
+midterm,familiar,12,0,marked-rwkv,marked-count,source_success,-9.583333333333332,-15.833333333333332,-4.166666666666666,10000,5,8,3,2
+midterm,familiar,12,0,marked-rwkv,marked-count,joint_success,-9.583333333333332,-15.833333333333332,-4.166666666666666,10000,5,8,3,2
+midterm,familiar,12,128,marked-rwkv,marked-count,answer_success,-21.666666666666664,-29.999999999999993,-13.333333333333332,10000,5,8,3,2
+midterm,familiar,12,128,marked-rwkv,marked-count,source_success,-21.666666666666664,-29.999999999999993,-13.333333333333332,10000,5,8,3,2
+midterm,familiar,12,128,marked-rwkv,marked-count,joint_success,-21.666666666666664,-29.999999999999993,-13.333333333333332,10000,5,8,3,2

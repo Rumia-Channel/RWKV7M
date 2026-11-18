@@ -1,0 +1,17 @@
+arm,surface,gap,metric,mixed,basic_only,denominator,delta_pp,lower95_pp,upper95_pp,draws,families_per_draw,resamples
+marked-count,familiar,0,answer_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,familiar,0,joint_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,familiar,128,answer_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,familiar,128,joint_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,midterm,0,answer_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,midterm,0,joint_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,midterm,128,answer_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-count,midterm,128,joint_success,240,240,240,0.0,0.0,0.0,5,8,10000
+marked-rwkv,familiar,0,answer_success,236,217,240,7.916666666666666,2.916666666666666,14.166666666666663,5,8,10000
+marked-rwkv,familiar,0,joint_success,236,217,240,7.916666666666666,2.916666666666666,14.166666666666663,5,8,10000
+marked-rwkv,familiar,128,answer_success,236,188,240,19.999999999999996,12.083333333333332,27.916666666666664,5,8,10000
+marked-rwkv,familiar,128,joint_success,236,188,240,19.999999999999996,12.083333333333332,27.916666666666664,5,8,10000
+marked-rwkv,midterm,0,answer_success,240,217,240,9.583333333333332,2.4999999999999996,18.33333333333333,5,8,10000
+marked-rwkv,midterm,0,joint_success,240,217,240,9.583333333333332,2.4999999999999996,18.33333333333333,5,8,10000
+marked-rwkv,midterm,128,answer_success,240,195,240,18.749999999999996,9.166666666666666,29.583333333333325,5,8,10000
+marked-rwkv,midterm,128,joint_success,240,195,240,18.749999999999996,9.166666666666666,29.583333333333325,5,8,10000
