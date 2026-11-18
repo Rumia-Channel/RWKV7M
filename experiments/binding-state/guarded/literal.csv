@@ -1,0 +1,10 @@
+task,gap,key_pairs,both_worlds,questions,correct
+change,128,128,128,256,256
+change,1024,128,128,256,256
+filler,1024,128,128,256,256
+mixed,0,128,128,256,256
+mixed,1024,128,128,256,256
+near,0,128,128,256,256
+overwrite,32,32,32,64,64
+repeat,128,128,128,256,256
+repeat,1024,128,128,256,256
