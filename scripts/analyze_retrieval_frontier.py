@@ -82,7 +82,47 @@ def analyze(path):
                 adopt_adaptive=superiority and retention and invalids['adaptive'] == 0)
 
 
+def audit_schedules(path):
+    """Audit what actually ran, independently of the scheduler that generated it."""
+    seeds = (42, 43, 44)
+    cells = {(g, w) for g in (32, 64, 128) for w in (0, 4, 8)}
+    traces = {(arm, seed): {} for arm in ARMS[1:] for seed in seeds}
+    with Path(path).open(encoding='utf-8', newline='') as stream:
+        for row in csv.DictReader(stream):
+            updates = traces[row['arm'], int(row['weight_seed'])]
+            step, anchored = int(row['step']), int(row['anchor'])
+            cell = int(row['gap']), int(row['writes'])
+            if step in updates or anchored not in (0, 1) or cell not in cells or (anchored and cell != (32, 0)):
+                raise ValueError(f'invalid or duplicate update: {row}')
+            updates[step] = None if anchored else cell
+    common_anchor = None
+    for key, updates in traces.items():
+        if set(updates) != set(range(96)):
+            raise ValueError(f'{key} does not have 96 distinct updates')
+        anchor = {s for s, cell in updates.items() if cell is None}
+        if len(anchor) != 24 or (common_anchor is not None and anchor != common_anchor):
+            raise ValueError(f'unmatched anchor budget or positions: {key}')
+        common_anchor = anchor
+        if key[0] == 'fixed' and (updates != traces['fixed', seeds[0]] or
+                                  any(sum(cell == c for cell in updates.values()) != 8 for c in cells)):
+            raise ValueError(f'unbalanced fixed schedule: {key}')
+    matched = {}
+    for i, seed in enumerate(seeds):
+        donor = seeds[(i + 1) % len(seeds)]
+        if traces['yoked', seed] != traces['adaptive', donor]:
+            raise ValueError(f'yoked schedule for {seed} differs from registered donor {donor}')
+        matched[seed] = {arm: sum(cell is not None and cell == traces[arm, seed][s]
+                                  for s, cell in traces['adaptive', seed].items())
+                         for arm in ('fixed', 'yoked')}
+    return dict(steps=96, anchor_updates=24, nonanchor_updates=72, adaptive_matching_nonanchor=matched)
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('family_csv', type=Path)
-    print(json.dumps(analyze(p.parse_args().family_csv), indent=2, allow_nan=False))
+    p.add_argument('--schedule-csv', type=Path, help='audit the paid runs and the cross-seed donor assignment')
+    args = p.parse_args()
+    result = analyze(args.family_csv)
+    if args.schedule_csv:
+        result['schedule_audit'] = audit_schedules(args.schedule_csv)
+    print(json.dumps(result, indent=2, allow_nan=False))

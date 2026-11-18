@@ -61,3 +61,27 @@ def test_empirical_horizon_stops_at_first_failed_gap_in_any_seed(score):
     grid = score(rows + extra)['empirical_90pct_grid_all_seeds']
     assert grid['filler']['parent'] == {'last_passing_tested_gap': 0, 'first_failing_tested_gap': 64}
     assert 'other-writes' not in grid  # This fixture does not evaluate its zero-distance baseline.
+
+
+def test_schedule_audit_distinguishes_self_replay_from_cross_seed(monkeypatch, tmp_path):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / 'scripts'))
+    audit = import_module('analyze_retrieval_frontier').audit_schedules
+    path = tmp_path / 'updates.csv'
+    cells = [(g, w) for g in (32, 64, 128) for w in (0, 4, 8)]
+    def write_replay(self_replay):
+        with path.open('w', newline='') as f:
+            out = csv.writer(f)
+            out.writerow(('arm', 'weight_seed', 'step', 'anchor', 'gap', 'writes'))
+            for i, s in enumerate((42, 43, 44)):
+                for arm in ('adaptive', 'fixed', 'yoked'):
+                    for step in range(96):
+                        anchor = step % 4 == 3
+                        index = step - step // 4
+                        n = index if arm == 'fixed' else i if arm == 'adaptive' or self_replay else (i + 1) % 3
+                        cell = (32, 0) if anchor else cells[n % 9]
+                        out.writerow((arm, s, step, int(anchor), *cell))
+    write_replay(False)
+    assert audit(path)['adaptive_matching_nonanchor'][42] == {'fixed': 8, 'yoked': 0}
+    write_replay(True)
+    with pytest.raises(ValueError, match='registered donor'):
+        audit(path)
