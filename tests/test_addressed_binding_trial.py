@@ -37,3 +37,18 @@ def test_frozen_rwkv_reads_the_copied_version_after_source_replacement():
     np.testing.assert_array_equal(reader.query(state,questions),[[before,after,-2]])
     state=reader.advance(state,np.array([[5,18,19]],np.int32))
     np.testing.assert_array_equal(reader.query(state,questions),[[-2,after,-2]])
+
+
+def test_hard_address_updates_preserve_payload_bits_and_erase_only_their_lane():
+    from addressed_rwkv_reader import _indexed_read, _indexed_updates
+    from rwkv7m.model.address_screening import initial_memory
+
+    bank = np.random.default_rng(31).standard_normal((16, 16, 7)).astype(np.float32)
+    events = np.array([[[1,3,1],[2,6,3],[1,3,4],[0,0,0]],
+                       [[1,6,0],[2,7,6],[0,0,0],[2,6,5]]], np.int32)
+    state = _indexed_updates(initial_memory(2, 16, 7), bank, events)
+    values, valid = _indexed_read(state, np.array([[6,3],[7,6]], np.int32))
+    np.testing.assert_array_equal(valid, [[True,True],[True,False]])
+    np.testing.assert_array_equal(values[0], bank[3,[1,4]])
+    np.testing.assert_array_equal(values[1,0], bank[6,0])
+    np.testing.assert_array_equal(values[1,1], np.zeros(7, np.float32))

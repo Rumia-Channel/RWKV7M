@@ -59,10 +59,35 @@ class StreamState(NamedTuple):
     previous: np.ndarray
 
 
+@jax.jit
+def _indexed_updates(memory,payloads,events):
+    """Materialize R=QM directly for hard-address inference; events are parser-validated."""
+    lanes=jnp.arange(memory.bound.shape[0])
+    def step(m,event):
+        kind,dst,arg=event.T
+        active=kind!=0
+        literal=kind==1
+        # The public key and literal alphabets both have COUNT entries.
+        value=jnp.where(literal[:,None],payloads[dst,arg],m.matrix[lanes,arg])
+        bound=literal | m.bound[lanes,arg]
+        matrix=m.matrix.at[lanes,dst].set(jnp.where(active[:,None],value,m.matrix[lanes,dst]))
+        flags=m.bound.at[lanes,dst].set(jnp.where(active,bound,m.bound[lanes,dst]))
+        return type(m)(matrix,flags),None
+    return jax.lax.scan(step,memory,events.swapaxes(0,1))[0]
+
+
+@jax.jit
+def _indexed_read(memory,keys):
+    lanes=jnp.arange(keys.shape[0])[:,None]
+    count=memory.bound.shape[1];index=jnp.clip(keys,0,count-1)
+    valid=(keys>=0)&(keys<count)&memory.bound[lanes,index]
+    return jnp.where(valid[...,None],memory.matrix[lanes,index],0.0),valid
+
+
 class AddressedReader:
     def __init__(self,codec,mode):
         self.codec=codec
-        self.q,self.u=map(jnp.asarray,make_address_codes(codec.embeddings,mode))
+        self.q,self.u=(None,None) if mode=='register' else tuple(map(jnp.asarray,make_address_codes(codec.embeddings,mode)))
 
     def start(self,lanes):
         return StreamState(initial_memory(lanes,COUNT,self.codec.payloads.shape[-1]),np.full((lanes,2),-1,np.int32))
@@ -70,8 +95,15 @@ class AddressedReader:
     def advance(self,state,tokens):
         previous,events=parse_chunk(state.previous,tokens)
         memory=state.memory
-        if events.shape[1]: memory=apply_events_jit(memory,self.q,self.u,self.codec.payloads,jnp.asarray(events))
+        if events.shape[1]:
+            ev=jnp.asarray(events)
+            memory=(_indexed_updates(memory,self.codec.payloads,ev) if self.q is None else
+                    apply_events_jit(memory,self.q,self.u,self.codec.payloads,ev))
         return StreamState(memory,previous)
+
+    def read_vectors(self,state,keys):
+        return (_indexed_read(state.memory,keys) if self.q is None else
+                read_memory_jit(state.memory,self.q,keys))
 
     def query(self,state,questions):
         """Read independent full QUERY/key/ANSWER triples without changing the carry."""
@@ -80,7 +112,7 @@ class AddressedReader:
             np.any(q[...,0]!=QUERY_TOKEN) or np.any(q[...,2]!=ANSWER_MARKER_TOKEN) or
             np.any((q[...,1]<KEY_BASE)|(q[...,1]>=KEY_BASE+COUNT))):
             raise ValueError('expected visible int32 queries [B,N,3] in the binding vocabulary')
-        hidden,valid=read_memory_jit(state.memory,self.q,jnp.asarray(q[...,1]-KEY_BASE))
+        hidden,valid=self.read_vectors(state,jnp.asarray(q[...,1]-KEY_BASE))
         return np.asarray(_predict(self.codec.model,hidden,valid))
 
     def predict(self,h,q):
