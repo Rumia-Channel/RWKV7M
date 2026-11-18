@@ -210,7 +210,7 @@ def artifact(arm):
     tensors = {key: np.asarray(value) for key, value in params.items()}
     tensors.update(mean=np.zeros(width, np.float32), scale=np.ones(width, np.float32))
     meta = {'format': FORMAT, 'version': VERSION, 'arm': arm, 'seed': '42', 'updates': '12',
-            'weight_sha': 'none' if arm in ('bag', 'marked-count') else 'b' * 64}
+            'curriculum': 'mixed', 'weight_sha': 'none' if arm in ('bag', 'marked-count') else 'b' * 64}
     router = induce_router(questions()) if arm.startswith('marked-') else None
     if router is not None:
         tensors.update(router_markers=router.markers, router_lexicon=router.lexicon)
@@ -329,6 +329,7 @@ def test_sha_claim_must_match_whether_the_arm_uses_rwkv(tmp_path, arm):
 @pytest.mark.parametrize('key,value', [
     ('format', 'rwkv7m.episodic_address'), ('version', '2'), ('arm', 'unrecognized'),
     ('seed', '-1'), ('seed', '42.0'), ('updates', '-1'), ('updates', '12.0'),
+    ('curriculum', 'unregistered'),
     ('weight_sha', 'f' * 63), ('weight_sha', 'G' * 64), ('unexpected', 'label'),
 ])
 def test_policy_rejects_invalid_metadata_and_format(tmp_path, key, value):

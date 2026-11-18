@@ -13,7 +13,7 @@ FORMAT = 'rwkv7m.role_binding'
 VERSION = '1'
 _PARAMETERS = ('input', 'bias', 'out', 'out_bias')
 _ROUTER_TENSORS = ('router_markers', 'router_lexicon')
-_METADATA = {'format', 'version', 'arm', 'seed', 'weight_sha', 'updates'}
+_METADATA = {'format', 'version', 'arm', 'seed', 'weight_sha', 'updates', 'curriculum'}
 _COUNT_ARMS = ('bag', 'marked-count')
 _MARKED_ARMS = ('marked-count', 'marked-rwkv')
 
@@ -28,6 +28,7 @@ def _shapes(arm):
 def _validate(tensors, meta):
     if (set(meta) != _METADATA or not all(isinstance(value, str) for value in meta.values()) or
             meta.get('format') != FORMAT or meta.get('version') != VERSION or meta.get('arm') not in ARMS or
+            meta.get('curriculum') not in ('mixed', 'basic-only') or
             not re.fullmatch(r'0|[1-9][0-9]*', meta.get('seed', '')) or
             not re.fullmatch(r'0|[1-9][0-9]*', meta.get('updates', ''))):
         raise ValueError('invalid role-binding policy metadata')
@@ -52,7 +53,7 @@ def _validate(tensors, meta):
     return router
 
 
-def save_policy(path, params, mean, scale, *, arm, seed, weight_sha, updates, router=None):
+def save_policy(path, params, mean, scale, *, arm, seed, weight_sha, updates, router=None, curriculum='mixed'):
     """Save without overwriting; FP32 parameters and int32 router IDs stay exact."""
     if arm not in ARMS:
         raise ValueError(f'unknown role-binding arm: {arm}')
@@ -66,7 +67,7 @@ def save_policy(path, params, mean, scale, *, arm, seed, weight_sha, updates, ro
         _validate_router(router)
         tensors.update({name: np.ascontiguousarray(value) for name, value in zip(_ROUTER_TENSORS, router)})
     meta = {'format': FORMAT, 'version': VERSION, 'arm': arm, 'seed': str(seed),
-            'weight_sha': weight_sha, 'updates': str(updates)}
+            'updates': str(updates), 'weight_sha': weight_sha, 'curriculum': curriculum}
     _validate(tensors, meta)
     payload = save(tensors, metadata=meta)
     path = Path(path)
