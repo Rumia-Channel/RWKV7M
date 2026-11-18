@@ -3103,6 +3103,14 @@ python scripts/analyze_retrieval_frontier.py --midpoint experiments/retention/mi
 
 再集計用：[開発CSV](experiments/binding-state/replay/development.csv)・[独立CSV](experiments/binding-state/replay/heldout.csv)・[選択フラグ](experiments/binding-state/replay/calibration.csv)・[採否](experiments/binding-state/replay/gates.csv)・[キー単位](experiments/binding-state/replay/retrieval.csv)・[式単位](experiments/binding-state/replay/equations.csv)・[誤答分類](experiments/binding-state/replay/mixed-recent-errors.csv)。
 
+## 22.16 末尾の再読を教師にして、再読しない通常RWKVを鍛える
+
+**実験前の取り決め。** §22.15で直近の上書きが読めたのは、長期側の状態に加えて、推論中に末尾を再計算した場合である。ここでは親42・43・44から各2個の通常RWKVを作り、教師もキャッシュもない**全履歴1回読み**に効果が移るかを試す。対照CEは正解トークンの交差エントロピーだけ、蒸留は同じCEに、凍結した対応親が末尾64 tokenから正解できた更新キーだけ $0.5 T^2\,\mathrm{KL}(p_\mathrm{teacher}\|p_\mathrm{student})$ を加える（$T=2$、対象回答内の平均）。教師は新しい値を問うときだけ使い、古い値には教えない。無学習の親も同じテストに通す。
+
+両腕とも504,960パラメータ、同じ初期重み・訓練例・質問数・更新回数。64更新、Adam（学習率 $3\times10^{-5}$、勾配ノルム上限1）、1更新2 family。4更新のうち3回は、128 tokenの干渉の前半だけを変える2種類の履歴と、最後の4変数への代入を変える2種類の末尾を直交させる。各履歴で更新キーと非更新キーを1個ずつ問う。残る1回は従来の近距離と上書き32を交互に使う。両腕とも同じ教師出力を計測するがCEの蒸留係数は0。教師の計算は実質無料とは扱わない。訓練seedは64100+親seed。途中で独立評価を見て設定や重みを選び直さない。
+
+**独立評価と採否。** 未使用の入力seed 731967/731968、32履歴対を固定。混合1,024で実際に更新された4キーの両履歴正答率を主指標とする。蒸留がCEより3親合計で5ポイント以上高く、3親中2親以上で改善し、各親の非更新4キー・近距離0・上書き32に2ポイントを超える低下がなく、非有限回答ゼロなら蒸留を採用する。併せて、CE単独を無学習親と比べ、合計10ポイント以上改善し、同じ保護条件を満たすかも検証する。距離を固定したfiller・変更書き込み、同じキーの近遠同時正答、深さ24のAとACDが両履歴でともに合うかは副指標。学習するのは記号値の取得であり、式の計算器は共通。これは3親の小規模比較であり、§23の5つの独立初期化による確認とは区別する。
+
 ---
 
 # 23. Statistical Protocol
