@@ -3,6 +3,8 @@
 All arms use one frozen ordinary synthetic RWKV. The caches hold complete
 neural states plus public keys and bounded replacement metadata, never values
 or model answers. A query forks a state; reading never updates a cache.
+The replay route uses a fixed visible-token suffix only when a complete legal
+write for that query is among its last capacity completed writes.
 """
 
 from dataclasses import replace
@@ -24,6 +26,7 @@ from rwkv7m.model.state import init_rwkv_state, init_screen_state
 
 
 ARMS = ('live', 'fifo', 'keyed')
+REPLAY_TOKENS = 64
 _BLOCK = 64
 
 
@@ -42,6 +45,53 @@ class _Keyed(NamedTuple):
     states: object
     keys: jax.Array
     ranks: jax.Array  # 0 = newest distinct key; bounded by capacity - 1.
+
+
+def _validate_capacity(capacity):
+    if isinstance(capacity, bool) or not isinstance(capacity, Integral) or capacity < 1:
+        raise ValueError('capacity must be a positive integer')
+    return int(capacity)
+
+
+def _raw_inputs(history, queries):
+    history, queries = np.asarray(history), np.asarray(queries)
+    if (history.ndim != 3 or history.shape[0] < 1 or history.shape[1] != 2
+            or queries.ndim != 4 or queries.shape[:2] != history.shape[:2]
+            or queries.shape[2] < 1 or queries.shape[3] != 3):
+        raise ValueError('expected history [family,2,time] and queries [family,2,question,3]')
+    if history.dtype != np.int32 or queries.dtype != np.int32:
+        raise ValueError('history and queries must have dtype int32')
+    if np.any((history < 0) | (history >= 128)):
+        raise ValueError('history contains an out-of-vocabulary token')
+    if not (np.all(queries[..., 0] == QUERY_TOKEN)
+            and np.all(queries[..., 2] == ANSWER_MARKER_TOKEN)
+            and np.all((queries[..., 1] >= 16) & (queries[..., 1] < 32))):
+        raise ValueError('expected raw [QUERY, key 16..31, ANSWER_MARKER] queries')
+    return history, queries
+
+
+def _replay_hits(history, queries, capacity):
+    if history.shape[-1] <= REPLAY_TOKENS:
+        return np.zeros(queries.shape[:-1], dtype=np.bool_)
+    suffix = history[..., -REPLAY_TOKENS:]
+    keys, values = suffix[..., 1:-1], suffix[..., 2:]
+    events = ((suffix[..., :-2] == STORE_TOKEN)
+              & (keys >= 16) & (keys < 32) & (values >= 32) & (values < 48))
+    events &= np.cumsum(events[..., ::-1], axis=-1, dtype=np.int32)[..., ::-1] <= capacity
+    return ((queries[..., 1, None] == keys[..., None, :]) & events[..., None, :]).any(axis=-1)
+
+
+def replay_mask(history, queries, capacity):
+    """Return bool [family,2,question] using only raw int32 visible inputs.
+
+    Only complete legal STORE/key/value triples wholly inside the last 64
+    tokens count. Each lane keeps its last capacity events, including repeats;
+    partial or illegal writes do not count. Histories of at most 64 tokens
+    always use the original guard.
+    """
+    capacity = _validate_capacity(capacity)
+    history, queries = _raw_inputs(history, queries)
+    return _replay_hits(history, queries, capacity)
 
 
 def _state_bytes(state):
@@ -165,6 +215,18 @@ def _fork_guarded_states(live, recent, keyed, query_keys):
     return jax.tree.map(fork, live, keyed.states)
 
 
+def _fork_replayed_states(live, recent, keyed, fresh, query_keys, replayed):
+    """Choose a suffix or original guarded state before any query is read."""
+    questions = query_keys.shape[1]
+    guarded = _fork_guarded_states(live, recent, keyed, query_keys)
+
+    def select(current, local):
+        mask_shape = (current.shape[0],) + (1,) * (current.ndim - 1)
+        return jnp.where(replayed.reshape(mask_shape), jnp.repeat(local, questions, axis=0), current)
+
+    return jax.tree.map(select, guarded, fresh)
+
+
 def _commit_grid(history):
     """Find a common write-boundary grid using at most 64 positions of scratch.
 
@@ -236,15 +298,31 @@ def _read_queries(model, queries, live, fifo, keyed):
     return _predictions(logits).reshape(len(ARMS), batch, questions)
 
 
-@nnx.jit
-def _read_guarded_queries(model, queries, live, recent, keyed):
+def _read_selected_queries(model, queries, state):
     batch, questions, _ = queries.shape
-    state = _fork_guarded_states(live, recent, keyed, queries[:, :, 1])
     hidden, _, _, _ = model.compute_recurrent_hidden(
         queries.reshape(-1, 3), *state, phase='read_write', deterministic=True,
     )
     logits = model.compute_logits(hidden[:, -1:, :])[:, 0, :].astype(jnp.float32)
     return _predictions(logits).reshape(batch, questions)
+
+
+@nnx.jit
+def _read_guarded_queries(model, queries, live, recent, keyed):
+    state = _fork_guarded_states(live, recent, keyed, queries[:, :, 1])
+    return _read_selected_queries(model, queries, state)
+
+
+@nnx.jit
+def _read_fresh_queries(model, queries, fresh):
+    state = jax.tree.map(lambda x: jnp.repeat(x, queries.shape[1], axis=0), fresh)
+    return _read_selected_queries(model, queries, state)
+
+
+@nnx.jit
+def _read_replayed_queries(model, queries, live, recent, keyed, fresh, replayed):
+    state = _fork_replayed_states(live, recent, keyed, fresh, queries[:, :, 1], replayed)
+    return _read_selected_queries(model, queries, state)
 
 
 class SnapshotReader:
@@ -259,15 +337,17 @@ class SnapshotReader:
     keys; recent queries use live, others use keyed with live fallback on misses.
     Prefill workspace is bounded at 64 tokens; independent query workspace
     scales with the number of requested questions.
+    Replay reads add one transient zero-initialized 64-token suffix state per
+    lane only when the visible complete-write mask has a hit. State selection
+    precedes a single neural query read/head; no unused prediction is scored.
     """
 
     def __init__(self, weights: Path, capacity: int = 16):
-        if isinstance(capacity, bool) or not isinstance(capacity, Integral) or capacity < 1:
-            raise ValueError('capacity must be a positive integer')
+        capacity = _validate_capacity(capacity)
         params, config, _ = load_model_safetensors(Path(weights))
         if config is None or config.use_screening or config.vocab_size != 128:
             raise ValueError('expected an ordinary non-screening synthetic RWKV with vocabulary 128')
-        self.capacity = int(capacity)
+        self.capacity = capacity
         self._config = replace(config, remat_blocks=False)
         self._model = initialize_nnx_model(jax.random.key(0), self._config)
         load_linen_params_into_nnx(self._model, params)
@@ -303,21 +383,18 @@ class SnapshotReader:
             plain(last, history.shape[1])
         return live, fifo, keyed
 
-    def _inputs(self, history, queries):
-        history, queries = np.asarray(history), np.asarray(queries)
-        if (history.ndim != 3 or history.shape[0] < 1 or history.shape[1] != 2
-                or queries.ndim != 4 or queries.shape[:2] != history.shape[:2]
-                or queries.shape[2] < 1 or queries.shape[3] != 3):
-            raise ValueError('expected history [family,2,time] and queries [family,2,question,3]')
-        if history.dtype != np.int32 or queries.dtype != np.int32:
-            raise ValueError('history and queries must have dtype int32')
-        if np.any((history < 0) | (history >= self._config.vocab_size)):
-            raise ValueError('history contains an out-of-vocabulary token')
-        if not (np.all(queries[..., 0] == QUERY_TOKEN)
-                and np.all(queries[..., 2] == ANSWER_MARKER_TOKEN)
-                and np.all((queries[..., 1] >= 16) & (queries[..., 1] < 32))):
-            raise ValueError('expected raw [QUERY, key 16..31, ANSWER_MARKER] queries')
-        return history, queries
+    def _prefill_fresh(self, history):
+        live = self._initial(history.shape[0])
+        ids = jnp.asarray(history)
+        length = history.shape[1]
+        boundary = length // _BLOCK * _BLOCK
+        for start, stop, block_size in ((0, boundary, _BLOCK), (boundary, length, length - boundary)):
+            if stop > start:
+                live, _, _ = _advance_blocks(
+                    self._model, ids, live, None, None, jnp.int32(start), jnp.int32(stop),
+                    block_size=block_size, cache_writes=False,
+                )
+        return live
 
     def predict(self, history, queries, *, include_guard=False):
         """Compare raw [family,2,time] histories and [family,2,question,3] queries.
@@ -325,7 +402,7 @@ class SnapshotReader:
         The default three-arm output is unchanged. The optional guarded arm
         selects already-evaluated deterministic live/keyed predictions per key.
         """
-        history, queries = self._inputs(history, queries)
+        history, queries = _raw_inputs(history, queries)
         families, worlds, questions, _ = queries.shape
         flat = history.reshape(families * worlds, history.shape[2])
         states = self._prefill(flat)
@@ -346,10 +423,52 @@ class SnapshotReader:
 
         No FIFO neural payload or unused-arm query state is allocated here.
         """
-        history, queries = self._inputs(history, queries)
+        history, queries = _raw_inputs(history, queries)
         families, worlds, questions, _ = queries.shape
         flat = history.reshape(families * worlds, history.shape[2])
         states = self._prefill(flat, guarded=True)
         return np.asarray(_read_guarded_queries(
             self._model, jnp.asarray(queries.reshape(-1, questions, 3)), *states,
         ), dtype=np.int32).reshape(families, worlds, questions)
+
+    def predict_fresh(self, history, queries):
+        """Read nonempty raw visible history from zero, sharing its prefill.
+
+        Return unrestricted int32 [family,2,question] argmax tokens, with -1
+        only for a nonfinite logit vector. No cache or answer input is used.
+        """
+        history, queries = _raw_inputs(history, queries)
+        if history.shape[2] < 1:
+            raise ValueError('fresh reads require nonempty history')
+        families, worlds, questions, _ = queries.shape
+        fresh = self._prefill_fresh(history.reshape(families * worlds, history.shape[2]))
+        return np.asarray(_read_fresh_queries(
+            self._model, jnp.asarray(queries.reshape(-1, questions, 3)), fresh,
+        ), dtype=np.int32).reshape(families, worlds, questions)
+
+    def predict_replayed(self, history, queries):
+        """Use fresh last-64-token state on replay_mask hits, else the old guard.
+
+        Only the selected state is read through the neural query and head.
+        Short histories and masks without hits do no local reset/prefill work;
+        the extra suffix state is transient and never becomes a cached entry.
+        """
+        history, queries = _raw_inputs(history, queries)
+        families, worlds, questions, _ = queries.shape
+        replayed = _replay_hits(history, queries, self.capacity)
+        flat = history.reshape(families * worlds, history.shape[2])
+        flat_queries = jnp.asarray(queries.reshape(-1, questions, 3))
+        if not replayed.any():
+            predictions = _read_guarded_queries(
+                self._model, flat_queries, *self._prefill(flat, guarded=True),
+            )
+        else:
+            fresh = self._prefill_fresh(flat[:, -REPLAY_TOKENS:])
+            if replayed.all():
+                predictions = _read_fresh_queries(self._model, flat_queries, fresh)
+            else:
+                predictions = _read_replayed_queries(
+                    self._model, flat_queries, *self._prefill(flat, guarded=True),
+                    fresh, jnp.asarray(replayed.reshape(-1, questions)),
+                )
+        return np.asarray(predictions, dtype=np.int32).reshape(families, worlds, questions)

@@ -189,6 +189,17 @@ The example prints the public program and the binding tokens each arm actually p
 
 For the independent recency-guard trial, run `python scripts/benchmark_binding_state.py out/guard --guard-study`, then `python scripts/score_binding_state.py report out/guard/readouts.csv out/guard-scores`. The added mixed condition asks about recently overwritten and old keys in the same history. `SnapshotReader.predict_guarded(history, queries)` is the standalone path: one keyed state bank plus recent key IDs, and one RWKV read per question. When a key is still in the recent-write ring it reads the current state instead of rewinding. For explicitly marked keys, also run `python scripts/score_binding_state.py table out/guard/readouts.csv out/literal.csv`: this non-neural control stores the visible values themselves with one byte per address.
 
+The [late-write replay probe](RWKV7M.paper.md#2215-干渉の直後に書いた値をどう読むか) tests whether the previous state, rather than the recent write itself, interferes. `SnapshotReader.predict_replayed` reads from a fresh 64-token suffix only when it contains a complete recent write to the requested key; all misses retain the guarded route. It uses the same weights, up to one extra suffix prefill shared across questions, and one final neural read per question. The 24-token suffix at the known overwrite boundary is a diagnostic, not the routing rule.
+
+```bash
+python scripts/probe_binding_replay.py out/replay/length-control.csv --split length-control
+python scripts/probe_binding_replay.py out/replay/development.csv --split published
+python scripts/probe_binding_replay.py out/replay/heldout.csv --split independent
+python scripts/score_binding_replay.py out/replay/heldout.csv out/replay/report --calibrate-with out/replay/development.csv
+```
+
+The length control substitutes filler for exactly 1,024 intervening tokens while retaining the same visible writes at the end. Development reuses stored guarded predictions only after checking the complete input hash. The independent run evaluates the frozen networks; optional checkpoint-level enablement is chosen from the development split alone.
+
 To pause and resume the matched study, run these commands in order:
 
 ```bash
