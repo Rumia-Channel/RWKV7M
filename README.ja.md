@@ -241,6 +241,16 @@ uv run python scripts/probe_episodic_address.py predict "$e/lexical-heads/factor
 
 未訓練の人物・状況の組、16事実＋背景1,024 tokenで、RWKV＋語数の方式は人物・状況の教師付きなら227/240問で両方の世界の正しい文から正答しましたが、答えだけを教えると4/240問の正答でした。同じ教師で訓練した**RWKVなし**の語数対照は240/240問。これは制御語彙での番地記憶の結果で、通常の言語モデルの改善を示しません。[重み・全予測・上書きの内訳](experiments/binding-state/episodic-address/)／[再現コマンド](README.md#writing-scenes-before-the-question-is-known)。
 
+### 基礎・入試風の問題で学び、別形式の中テストを解く
+
+[3種類の問題用紙を読む](experiments/binding-state/role-binding/forms/problems.ja.md)。訓練では基礎の受け渡しを1回、入試風の物流台帳を3回照合します。本番の中テストは別の校内備品台帳です。途中の品物で次の問いが変わり、訂正と単なる予定を区別しながら**2回**照合します。人物を入れ替えた4版すべてに正答して初めて得点にします。実在の試験問題ではなく、手順の数と出題形式で難度を分けた研究用教材です。
+
+[答えなしの全問題320版](experiments/binding-state/role-binding/forms/midterm-public.csv.gz)／[別紙の解答](experiments/binding-state/role-binding/forms/midterm-key.csv)／[論文 §22.22](RWKV7M.paper.md#L3307)／[学習・採点の再現手順](README.md#basic-and-entrance-style-training-separate-classroom-midterm)。日本語の問題用紙は人間用です。モデルが受け取るのは役割語を含む8トークンの各文、出発の問いと公開の照合表で、自然文から照合の手順そのものを発見する評価ではありません。
+
+[語彙対応表](experiments/binding-state/role-binding/forms/vocabulary.csv)で解答クラス0–7を品物名に戻せます。解答CSVの根拠位置は0始まり、印刷用紙の記録番号は1始まりです。
+
+1,024 tokenの干渉後、役割を区別するRWKV方式は基礎のみ195/240から、基礎＋応用で240/240に改善しました。ただし役割を同じ仕方で区別するRWKVなしの対照は、基礎のみでも240/240でした。ここで測れたのは役割を保つ番地と教材の効果で、RWKV固有の優位ではありません。
+
 ## ファイルとディレクトリの扱い
 
 - `data/`: dataset を置く場所です。`.bin` / `.idx` は大きくなりやすいので git には含めません。

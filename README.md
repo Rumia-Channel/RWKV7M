@@ -295,6 +295,36 @@ python scripts/measure_episodic_survival.py "$run/lexical-heads" "$run/replicati
 
 In the hardest fresh condition (16 facts + 1,024 background tokens), the hybrid with actor/occasion supervision answered from the correct sentence in both worlds on 227/240 paired questions. The hybrid trained from answers alone got 4/240 answers; the equally supervised, parameter-matched **no-RWKV** count control got 240/240. The scorer, not the predictor, sees support positions and gold answers. The distance calculation enumerates every background form in this grammar; it is not a long-context throughput or language-model-quality benchmark. [Weights, per-family predictions, ablations and CPU costs](experiments/binding-state/episodic-address/).
 
+### Basic and entrance-style training, separate classroom midterm
+
+[Study §22.22](RWKV7M.paper.md#L3307) asks which person gave an object to which other person. Reversing their roles changes the answer without changing the bag of words in **any** statement. We train on one lookup in basic exercises and three chained lookups in entrance-style exercises, then test **two** lookups on a differently arranged school register. The eight graded name pairs and three phrase permutations in the official midterm never occur in training. These are original, controlled problems, not actual entrance exams or a Japanese language proficiency test.
+
+Read [the three Japanese sample papers](experiments/binding-state/role-binding/forms/problems.ja.md). [All 320 answer-free midterm papers](experiments/binding-state/role-binding/forms/midterm-public.csv.gz) and the [separate answer key](experiments/binding-state/role-binding/forms/midterm-key.csv) are portable: `public_document` in each CSV row is a JSON input for the predictor. Treat the four related worlds, repeated gaps and repeated model initializations as dependent observations.
+
+The [vocabulary](experiments/binding-state/role-binding/forms/vocabulary.csv) maps object classes 0–7 to Japanese words and raw token IDs. `first_record` and `final_record` in the answer key count from zero; the printed papers number records from one.
+
+```bash
+export PYTHONPATH=src JAX_PLATFORMS=cpu
+exp=experiments/binding-state/role-binding
+python scripts/probe_role_binding.py predict "$exp/heads/marked-rwkv-s42.safetensors" "$exp/forms/midterm.json.example"
+
+run=out/role-binding-rerun   # fresh directory
+python scripts/role_binding_observations.py "$run/cache" --split train
+python scripts/role_binding_mixed_features.py "$run/cache" --form advanced
+python scripts/train_role_binding.py "$run/cache" "$run/heads"
+python scripts/train_role_binding.py "$run/cache" "$run/basic-heads" --basic-only
+python scripts/role_binding_observations.py "$run/cache" --split test
+python scripts/role_binding_mixed_features.py "$run/cache" --form midterm
+python scripts/probe_role_binding.py assess "$run/cache" "$run/heads" "$run/panel"
+python scripts/probe_role_binding.py assess "$run/cache" "$run/basic-heads" "$run/basic-control" --basic-control
+python scripts/compare_role_curricula.py "$run/panel" "$run/basic-control" "$run/curriculum-effects.csv"
+python scripts/publish_role_binding_forms.py "$run/forms"
+```
+
+Every arm gets the printed lookup procedure: the predicted object selects the next question from the public card. No gold intermediate answer, role label, address or source position is used for training. The marked policies assume a role word follows the term it marks; they discover two such markers from **training questions only**. The count variant of this router is not an orderless reader: its gate/value head sees counts, but the address uses local word order.
+
+With 1,024 background tokens, the marked RWKV achieved 240/240 four-world successes on the official midterm, versus 195/240 for the same head budget trained only on elementary problems. The marked no-backbone control got 240/240 under either curriculum. This shows transfer within the marked-phrase task, not a general RWKV advantage.
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:
