@@ -55,3 +55,22 @@ def test_mismatched_near_and_far_answers_fail_loudly(scripts):
     keys = tuple(range(16,24)); y = (tuple(range(32,40)),tuple(range(33,41))); swapped = tuple(reversed(y))
     data = {(1,2,t,g):(5,keys,{arm: truth for arm in ('truth',*s.ARMS)}) for t,g,truth in [('near',0,y),('change',128,swapped)]}
     with pytest.raises(ValueError, match='changed operands'): s.summarize(data)
+
+
+def test_mixed_scores_use_the_individual_keys_age_not_the_length_of_the_input(scripts):
+    _, s = scripts
+    keys = tuple(range(16,24)); y = (tuple(range(32,40)),tuple(range(33,41)))
+    live = (y[0], tuple(-1 if j<4 else t for j,t in enumerate(y[1])))
+    guarded = (y[0], (*y[1][:7],-1))  # A different recent prediction must be counted even among 4 correct cold pairs.
+    m = (0,0,0,0,1,1,1,1)
+    data = {(1,0,'mixed',0):(7,keys, dict(truth=y, live=y, fifo=y, keyed=y, guarded=y, recent=m)),
+            (1,0,'mixed',1024):(7,keys, dict(truth=y,live=live,fifo=live,keyed=y,guarded=guarded,recent=m))}
+    by_age = s.mixed_age_scores(data)
+    assert by_age[1,1024,'old','guarded'] == dict(key_pairs=4,both_worlds=4,near_and_far=4,different_from_live=4)
+    assert by_age[1,1024,'recent','guarded'] == dict(key_pairs=4,both_worlds=3,near_and_far=3,different_from_live=1)
+
+
+def test_literal_comparator_only_commits_complete_typed_writes(scripts):
+    _, s = scripts
+    h = np.array([2,16,33, 2,17,35, 2,16,50, 2,16,39, 2,17],dtype=np.int32)
+    assert s._literal_read(h,(16,17,18),2) == (39,35,0)

@@ -187,6 +187,8 @@ python scripts/score_binding_state.py example out/write-states/readouts.csv --se
 
 The example prints the public program and the binding tokens each arm actually predicted, then its `A` and `ACD`. The calculator is shared and exact; operand retrieval, not arithmetic, is neural. A snapshot costs a full recurrent state per slot and uses the explicitly marked key; this is not a zero-memory extension to arbitrary text prompts.
 
+For the independent recency-guard trial, run `python scripts/benchmark_binding_state.py out/guard --guard-study`, then `python scripts/score_binding_state.py report out/guard/readouts.csv out/guard-scores`. The added mixed condition asks about recently overwritten and old keys in the same history. `SnapshotReader.predict_guarded(history, queries)` is the standalone path: one keyed state bank plus recent key IDs, and one RWKV read per question. When a key is still in the recent-write ring it reads the current state instead of rewinding. For explicitly marked keys, also run `python scripts/score_binding_state.py table out/guard/readouts.csv out/literal.csv`: this non-neural control stores the visible values themselves with one byte per address.
+
 To pause and resume the matched study, run these commands in order:
 
 ```bash

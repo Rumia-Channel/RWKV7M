@@ -41,6 +41,14 @@ def commits(memory, keys, capacity=2):
     return fifo, keyed
 
 
+def guarded_commits(memory, keys, capacity=2):
+    recent, keyed = memory._empty_guarded_banks(state([0]), capacity)
+    for i, key in enumerate(keys, 1):
+        recent, keyed = memory._commit_guarded(state([i * 100]), recent, keyed,
+                                              jnp.asarray([key], jnp.int32))
+    return recent, keyed
+
+
 def assert_tree_close(actual, expected):
     assert jax.tree.structure(actual) == jax.tree.structure(expected)
     for left, right in zip(jax.tree.leaves(actual), jax.tree.leaves(expected), strict=True):
@@ -115,6 +123,64 @@ def test_queries_are_independent_and_do_not_refresh_replacement_order(memory):
     assert read_markers(memory, state([999]), fifo, keyed, [[16]])[2, 0, 0] == 999
 
 
+@pytest.mark.parametrize('keys,capacity,questions,expected', [
+    ([], 2, [16, 17, 31, -1, 15, 32], [999] * 6),
+    ([16, 17, 17], 2, [16, 17, 18, 31], [100, 999, 999, 999]),
+    ([16, 17, 16, 18, 18], 2, [16, 17, 18, 31], [300, 999, 999, 999]),
+    ([16, 17, 17, -1, 15, 32], 2, [16, 17, 18], [100, 999, 999]),
+    ([16, 17, 16], 1, [16, 17, 31], [999, 999, 999]),
+])
+def test_guard_routes_each_query_by_recent_writes_with_live_fallback(
+        memory, keys, capacity, questions, expected):
+    recent, keyed = guarded_commits(memory, keys, capacity)
+    before = [np.asarray(x).copy() for x in jax.tree.leaves((recent, keyed))]
+    query_keys = jnp.asarray([questions], jnp.int32)
+    routed = memory._fork_guarded_states(state([999]), recent, keyed, query_keys)
+    np.testing.assert_array_equal(routed['rwkv'][:, 0], expected)
+    np.testing.assert_array_equal(routed['screen'][:, 0, 0], jnp.asarray(expected, jnp.bfloat16))
+    reversed_states = memory._fork_guarded_states(state([999]), recent, keyed, query_keys[:, ::-1])
+    assert_tree_close(reversed_states, jax.tree.map(lambda x: x[::-1], routed))
+    for old, current in zip(before, jax.tree.leaves((recent, keyed)), strict=True):
+        np.testing.assert_array_equal(current, old)
+
+
+def test_guarded_commits_match_comparative_tags_and_keyed_states_per_lane(memory):
+    live = state([999, 888])
+    fifo, keyed = memory._empty_banks(live, 2)
+    recent, guarded_keyed = memory._empty_guarded_banks(live, 2)
+    events = [([16, 17], [100, 200]), ([16, -1], [300, 400]),
+              ([18, 17], [500, 600]), ([18, 16], [700, 800]),
+              ([15, 32], [900, 1000]), ([18, 16], [1100, 1200])]
+    for keys, markers in events:
+        keys = jnp.asarray(keys, jnp.int32)
+        fifo, keyed = memory._commit(state(markers), fifo, keyed, keys)
+        recent, guarded_keyed = memory._commit_guarded(state(markers), recent, guarded_keyed, keys)
+        np.testing.assert_array_equal(recent.keys, fifo.keys)
+        np.testing.assert_array_equal(recent.cursor, fifo.cursor)
+        assert_tree_close(guarded_keyed, keyed)
+
+
+@pytest.mark.parametrize('capacity', [1, 2, 16])
+def test_guarded_resident_payload_is_one_state_bank_plus_bounded_tags(memory, capacity):
+    live = state([0, 0])
+    recent, keyed = memory._empty_guarded_banks(live, capacity)
+    for i, key in enumerate(list(range(16, 32)) * 2, 1):
+        recent, keyed = memory._commit_guarded(
+            state([i * 100, i * 200]), recent, keyed, jnp.asarray([key, 47 - key], jnp.int32),
+        )
+    assert recent._fields == ('keys', 'cursor')
+    assert recent.keys.shape == keyed.keys.shape == keyed.ranks.shape == (2, capacity)
+    assert recent.cursor.shape == (2,)
+    assert keyed.states['rwkv'].shape == (2, capacity, 1)
+    assert keyed.states['screen'].shape == (2, capacity, 1, 1)
+    assert keyed.states['screen'].dtype == jnp.bfloat16
+    assert memory._state_bytes(keyed.states) == capacity * memory._state_bytes(live)
+    assert memory._state_bytes((recent, keyed)) == (
+        capacity * memory._state_bytes(live) + 2 * (3 * capacity + 1) * 4
+    )
+    assert np.all((np.asarray(keyed.ranks) >= 0) & (np.asarray(keyed.ranks) < capacity))
+
+
 @pytest.mark.parametrize('stride', [4, 8])
 def test_aligned_writes_use_event_blocks(memory, stride):
     history = np.ones((4, stride * 15 + 3), np.int32)
@@ -158,6 +224,35 @@ def test_state_bytes_counts_all_actual_shapes_and_dtypes(memory):
     leaves = (jnp.zeros((1, 2, 3), jnp.float32),
               {'screen': jnp.zeros((1, 7), jnp.bfloat16), 'occupancy': jnp.zeros((1, 5), jnp.bool_)})
     assert memory._state_bytes(leaves) == 6 * 4 + 7 * 2 + 5
+
+
+def test_guarded_query_path_evaluates_only_one_routed_batch_and_head(memory):
+    class ReadProbe(nnx.Module):
+        def __init__(self):
+            self.read_counts = nnx.Variable(jnp.zeros(2, jnp.int32))
+            self.head_counts = nnx.Variable(jnp.zeros(2, jnp.int32))
+
+        def compute_recurrent_hidden(self, ids, rwkv, screen, *, phase, deterministic):
+            assert phase == 'read_write' and deterministic
+            self.read_counts[...] += jnp.asarray([1, ids.shape[0]], jnp.int32)
+            hidden = jnp.broadcast_to(rwkv[:, None, :], (ids.shape[0], ids.shape[1], 1))
+            return hidden, rwkv, screen, None
+
+        def compute_logits(self, hidden):
+            self.head_counts[...] += jnp.asarray([1, hidden.shape[0]], jnp.int32)
+            return jax.nn.one_hot(hidden[..., 0].astype(jnp.int32), 128)
+
+    live = (jnp.array([[90]], jnp.float32), jnp.array([[[90]]], jnp.bfloat16))
+    recent, keyed = memory._empty_guarded_banks(live, 2)
+    for marker, key in [(20, 16), (30, 17), (40, 17)]:
+        checkpoint = jax.tree.map(lambda x: jnp.full_like(x, marker), live)
+        recent, keyed = memory._commit_guarded(checkpoint, recent, keyed, jnp.array([key], jnp.int32))
+    queries = jnp.array([[[3, 16, 4], [3, 17, 4], [3, 31, 4]]], jnp.int32)
+    model = ReadProbe()
+    result = memory._read_guarded_queries(model, queries, live, recent, keyed)
+    np.testing.assert_array_equal(result, [[20, 90, 90]])
+    np.testing.assert_array_equal(model.read_counts[...], [1, 3])
+    np.testing.assert_array_equal(model.head_counts[...], [1, 3])
 
 
 @pytest.fixture(scope='module')
@@ -287,6 +382,92 @@ def test_native_api_is_independent_across_families_worlds_queries_and_calls(memo
         np.testing.assert_array_equal(actual[arm][..., -1], actual['live'][..., -1])
 
 
+def test_native_guarded_matches_four_arm_and_independent_visible_prefix_reads(memory, native_weights):
+    reader = memory.SnapshotReader(native_weights, capacity=2)
+    history = np.ones((1, 2, 31), np.int32)
+    for world, keys in enumerate(([16, 18, 16, 17, 17], [17, 18, 17, 16, 16])):
+        for i, key in enumerate(keys):
+            start = world + 4 * i
+            history[0, world, start:start + 3] = [2, key, 32 + world * 5 + i]
+    # Neither a malformed event nor an incomplete STORE advances recency.
+    history[..., 22:25] = [2, 19, 48]
+    history[..., -2:] = [2, 16]
+    queries = np.broadcast_to(np.array([[3, 16, 4], [3, 17, 4], [3, 18, 4], [3, 31, 4]], np.int32),
+                              (1, 2, 4, 3)).copy()
+    legacy = reader.predict(history, queries)
+    comparative = reader.predict(history, queries, include_guard=True)
+    standalone = reader.predict_guarded(history, queries)
+    assert tuple(legacy) == memory.ARMS == ('live', 'fifo', 'keyed')
+    assert tuple(comparative) == (*memory.ARMS, 'guarded')
+    assert standalone.shape == (1, 2, 4) and standalone.dtype == np.int32
+    for arm in memory.ARMS:
+        np.testing.assert_array_equal(comparative[arm], legacy[arm])
+    np.testing.assert_array_equal(standalone, comparative['guarded'])
+    np.testing.assert_array_equal(
+        reader.predict_guarded(history, queries[..., ::-1, :].copy()), standalone[..., ::-1],
+    )
+    combined = reader.predict_guarded(
+        np.concatenate([history, history[:, ::-1]], axis=0),
+        np.concatenate([queries, queries[:, ::-1]], axis=0),
+    )
+    np.testing.assert_array_equal(combined, np.concatenate([standalone, standalone[:, ::-1]], axis=0))
+
+    live, recent, keyed = reader._prefill(history.reshape(2, -1), guarded=True)
+    recent_hits = np.asarray(memory._recent_hits(recent, jnp.asarray(queries.reshape(2, 4, 3)[:, :, 1])))
+    np.testing.assert_array_equal(recent_hits, [[False, True, False, False], [True, False, False, False]])
+    np.testing.assert_array_equal(
+        comparative['guarded'], np.where(recent_hits[None], legacy['live'], legacy['keyed']),
+    )
+    routed = memory._fork_guarded_states(live, recent, keyed, jnp.asarray(queries[0, :, :, 1]))
+    for world, tokens in enumerate(history[0]):
+        visible_recent, visible_keyed = reference_endpoints(tokens, reader.capacity)
+        for question, query in enumerate(queries[0, world]):
+            key = int(query[1])
+            end = len(tokens) if key in visible_recent else visible_keyed.get(key, len(tokens))
+            _, expected_state = native_forward(
+                reader._model, jnp.asarray(tokens[None, :end]), initial(reader),
+            )
+            row = world * queries.shape[2] + question
+            selected = jax.tree.map(lambda x: x[row:row + 1], routed)
+            assert_tree_close(selected, expected_state)
+            selected_logits, _ = native_forward(reader._model, jnp.asarray(query[None]), selected)
+            visible_logits, _ = native_forward(
+                reader._model, jnp.asarray(np.concatenate([tokens[:end], query])[None]), initial(reader),
+            )
+            np.testing.assert_allclose(selected_logits, visible_logits, rtol=3e-5, atol=3e-5)
+            assert standalone[0, world, question] == np.asarray(memory._predictions(visible_logits))[0]
+
+
+def test_standalone_guard_never_allocates_fifo_payload_or_evaluates_comparative_heads(
+        memory, native_weights, monkeypatch):
+    reader = memory.SnapshotReader(native_weights, capacity=2)
+    history = paired_history()
+    queries = np.broadcast_to(np.array([[3, 16, 4], [3, 18, 4], [3, 31, 4]], np.int32),
+                              (1, 2, 3, 3)).copy()
+    expected = reader.predict(history, queries, include_guard=True)['guarded']
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('standalone guarded reads must not use FIFO state banks or comparative heads')
+
+    monkeypatch.setattr(memory, '_empty_banks', forbidden)
+    monkeypatch.setattr(memory, '_read_queries', forbidden)
+    actual = reader.predict_guarded(history, queries)
+    np.testing.assert_array_equal(actual, expected)
+    _, recent, keyed = reader._prefill(history.reshape(2, -1), guarded=True)
+    assert recent._fields == ('keys', 'cursor')
+    assert memory._state_bytes(keyed.states) == 2 * reader.capacity * reader.state_bytes
+
+
+def test_standalone_guard_preserves_finite_raw_argmax_and_nonfinite_sentinel(memory, native_weights):
+    reader = memory.SnapshotReader(native_weights, capacity=2)
+    history = paired_history()
+    queries = np.broadcast_to(np.array([[3, 16, 4], [3, 18, 4]], np.int32), (1, 2, 2, 3)).copy()
+    reader._model.lm_head.kernel[...] = jnp.zeros_like(reader._model.lm_head.kernel[...])
+    np.testing.assert_array_equal(reader.predict_guarded(history, queries), np.zeros((1, 2, 2), np.int32))
+    reader._model.lm_head.kernel[...] = jnp.full_like(reader._model.lm_head.kernel[...], jnp.nan)
+    np.testing.assert_array_equal(reader.predict_guarded(history, queries), np.full((1, 2, 2), -1, np.int32))
+
+
 def test_empty_and_no_write_histories_use_live_fallback(memory, native_weights):
     reader = memory.SnapshotReader(native_weights, capacity=1)
     queries = np.broadcast_to(np.array([[[[3, 16, 4]]]], np.int32), (1, 2, 1, 3))
@@ -294,6 +475,10 @@ def test_empty_and_no_write_histories_use_live_fallback(memory, native_weights):
         result = reader.predict(np.ones((1, 2, length), np.int32), queries)
         for arm in ('fifo', 'keyed'):
             np.testing.assert_array_equal(result[arm], result['live'])
+        comparative = reader.predict(np.ones((1, 2, length), np.int32), queries, include_guard=True)
+        standalone = reader.predict_guarded(np.ones((1, 2, length), np.int32), queries)
+        np.testing.assert_array_equal(comparative['guarded'], result['live'])
+        np.testing.assert_array_equal(standalone, result['live'])
 
 
 @pytest.mark.parametrize('capacity', [0, -1, 1.5, True])
@@ -302,20 +487,26 @@ def test_invalid_capacity_is_rejected_before_loading(memory, capacity):
         memory.SnapshotReader(Path('not-a-checkpoint'), capacity)
 
 
-def test_raw_input_contract_rejects_labels_and_malformed_queries(memory, native_weights):
+@pytest.mark.parametrize('mode', ['legacy', 'four_arm', 'standalone'])
+def test_raw_input_contract_rejects_labels_and_malformed_queries(memory, native_weights, mode):
     reader = memory.SnapshotReader(native_weights)
     history = paired_history()
     queries = np.broadcast_to(np.array([[[[3, 16, 4]]]], np.int32), (1, 2, 1, 3)).copy()
+    if mode == 'standalone':
+        predict = reader.predict_guarded
+    else:
+        def predict(history, queries):
+            return reader.predict(history, queries, include_guard=(mode == 'four_arm'))
     with pytest.raises(ValueError, match='int32'):
-        reader.predict(history.astype(np.float32), queries)
+        predict(history.astype(np.float32), queries)
     with pytest.raises(ValueError, match='question,3'):
-        reader.predict(history, np.concatenate([queries, np.full((1, 2, 1, 1), 32, np.int32)], axis=-1))
+        predict(history, np.concatenate([queries, np.full((1, 2, 1, 1), 32, np.int32)], axis=-1))
     for position, token in ((0, 2), (1, 32), (2, 32)):
         invalid = queries.copy()
         invalid[..., position] = token
         with pytest.raises(ValueError, match='raw'):
-            reader.predict(history, invalid)
+            predict(history, invalid)
     invalid_history = history.copy()
     invalid_history[0, 0, 0] = 128
     with pytest.raises(ValueError, match='out-of-vocabulary'):
-        reader.predict(invalid_history, queries)
+        predict(invalid_history, queries)
