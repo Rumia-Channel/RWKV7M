@@ -2939,6 +2939,8 @@ JAX_PLATFORMS=cpu python scripts/probe_retrieval_distance.py \
 
 1種類から8種類への低下は各seedで29.9–49.6ポイント。非有限回答は0。1,536は独立文書数ではなく、同じ64履歴対を8問・3重みで評価した数。異なるkeyの競合と、同じkey/valueの反復による利得を個別に識別する実験ではない。それでも距離と書込み回数だけではこの親の難易度を説明できない。[履歴対ごとのカウント](experiments/retention/distractor-diversity.csv)は `python scripts/probe_retrieval_diversity.py` で再現できる。
 
+**種類数と出現回数まで揃えた順序対照。** 別の64履歴対（seed 26520）で、同じ8個の他key/valueを各2回、同じ16箇所に書いた。`ABCDEFGHABCDEFGH` は363/1,536（23.6%）、`AABBCCDDEEFFGGHH` は405/1,536（26.4%）。2回ずつまとめた順序の利得は各seedで+2.54、+3.91、+1.76ポイント、非有限0。順序は影響するが、同じkeyを繰り返す条件の62.4%には遠い。比較対象の履歴対が異なるので、先の差の何割が順序に起因するかは推定しない。[生のペア比較](experiments/retention/distractor-order.csv): `python scripts/probe_retrieval_diversity.py --contrast-order --seed 26520`。
+
 ## 22.10 学習距離・干渉を自動で選ぶ：事前比較設計
 
 問いは二つある。**他keyの書込みを含む学習に価値があるか**と、**自分の成績に応じて距離を選ぶこと自体に価値があるか**である。前者を親との比較だけで後者の根拠にはしない。ここでは状態やパラメーターを追加しない。§23の本試験より小さい、3初期値の合成課題パイロットとする。

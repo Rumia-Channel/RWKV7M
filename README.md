@@ -159,6 +159,8 @@ For proof-oriented runs, `write_rel_floor=0` tests true write rejection. Memory-
 
 ## Comparison experiments
 
+For long-distance memory experiments on the **ordinary, no-screening RWKV**, see [paper §22.9–22.10](RWKV7M.paper.md#229-通常rwkvの保持距離入力できる長さと検索できる距離は違う) and the [paired observations and three portable parent checkpoints](experiments/retention/). These are synthetic key/value retrieval experiments, not natural-language context-length ratings. `python scripts/probe_retrieval_diversity.py` varies the number of distractor keys at a fixed distance and write count; `python scripts/benchmark_retrieval_readout.py` measures the time, temporary buffers and numerical cost of sharing a query prefix.
+
 To download MiniPile, check out `RWKV-Vibe/RWKV-LM-V7`, and build upstream/local comparison checkpoints with a matched token budget:
 
 ```bash
