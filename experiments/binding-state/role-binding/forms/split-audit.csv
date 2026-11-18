@@ -1,0 +1,4 @@
+form,reads,families,unique_utterances,shared_utterances_with_train,phrase_orders,public_pairs,held_pairs_in_public_text,graded_pairs,held_graded_pairs
+basic,1,96,1221,1221,3,20,0,20,0
+advanced,3,64,1268,1268,3,20,0,20,0
+midterm,2,40,1850,0,3,28,8,8,8
