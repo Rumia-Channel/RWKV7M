@@ -1,0 +1,25 @@
+token_id,japanese,english,object_class
+8,が,ga,
+9,に,ni,
+10,を,wo,
+11,渡した,handed,
+12,渡そうと考えた,considered handing,
+13,。,.,
+14,何,what,
+15,？,?,
+23,ベクス,Bex,
+29,フェン,Fenn,
+31,ハリ,Hali,
+35,ダロ,Daro,
+41,ゴロ,Goro,
+47,アロ,Aro,
+53,エヴィ,Evi,
+59,シル,Cilu,
+94,硬貨,coin,1
+97,羽,feather,5
+100,葉,leaf,7
+103,石,stone,3
+109,指輪,ring,6
+115,貝,shell,0
+121,カップ,cup,4
+124,リボン,ribbon,2

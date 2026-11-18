@@ -53,8 +53,17 @@ def audit(output):
     return rows
 
 
+def write_vocabulary(output):
+    classes={token:i for i,token in enumerate(data.OBJECT_TOKENS)}
+    with (output/'vocabulary.csv').open('x',encoding='utf8',newline='') as file:
+        w=csv.writer(file,lineterminator='\n'); w.writerow(('token_id','japanese','english','object_class'))
+        for token in sorted(data.TOKEN_TO_WORD):
+            w.writerow((token,data.TOKEN_TO_JAPANESE[token],data.TOKEN_TO_WORD[token],classes.get(token,'')))
+
+
 def publish(output):
     output.mkdir(parents=True,exist_ok=True); report=audit(output)
+    write_vocabulary(output)
     bp=data.make_panel('train',data.TRAIN_DRAWS[0],1,4,0)
     basic=dict(blocks=bp.blocks[0,0].tolist(),queries=bp.queries[0].tolist(),cards=[],reads=1)
     basic_text='次の記録を読んで、二つの問いに物の名前で答えなさい。\n'+'\n'.join(data.gloss(b,japanese=True) for b in bp.blocks[0,0])+ '\n'+'\n'.join(data.gloss(q,japanese=True) for q in bp.queries[0])
