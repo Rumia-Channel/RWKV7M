@@ -5,7 +5,7 @@ from collections import defaultdict
 import json
 from pathlib import Path
 
-from symbolic_arithmetic import parse_answer, solve_prompt, format_answer
+from symbolic_arithmetic import format_answer, parse_answer, replay_prompt, solve_prompt
 from symbolic_bindings import MODES, QUERIES, cases
 
 
@@ -27,6 +27,21 @@ def make(args):
         for public, private in cases(args.seed, args.families, args.depths, args.gaps, args.modes):
             emit(questions, public); emit(key, private); count += 1
     print(f'{count} questions; pass only questions.jsonl to the model.')
+
+
+def replay(args):
+    if args.statements < 1:
+        raise ValueError('replay statement budget must be positive')
+    kept = skipped = 0
+    with args.output.open('x', encoding='utf-8', newline='\n') as out:
+        for row in records(args.questions):
+            prompt = replay_prompt(row['prompt'], args.statements)
+            if prompt is None:
+                skipped += 1  # Absent predictions remain misses when scored against the original key.
+            else:
+                emit(out, {'id': row['id'], 'prompt': prompt})
+                kept += 1
+    print(f'{kept} dependency-sliced public prompts, {skipped} over budget; score against the original key.')
 
 
 def predict(args):
@@ -94,6 +109,9 @@ def main():
     gen.add_argument('directory', type=Path); gen.add_argument('--seed', type=int, default=42101)
     gen.add_argument('--families', type=int, default=8); gen.add_argument('--depths', type=int, nargs='+', default=[2, 8, 24])
     gen.add_argument('--gaps', type=int, nargs='+', default=[0, 32]); gen.add_argument('--modes', choices=MODES, nargs='+', default=MODES)
+    select = sub.add_parser('replay', help='select the original assignments needed by each query; no arithmetic or private key')
+    select.add_argument('questions', type=Path); select.add_argument('output', type=Path)
+    select.add_argument('--statements', type=int, required=True, help='maximum replayed assignments; omit over-budget questions')
     ref = sub.add_parser('baseline', help='blind symbolic interpreter, optionally restricted to a suffix of the prompt')
     ref.add_argument('--last-statements', type=int, help='ignore all but this many trailing assignments')
     model = sub.add_parser('rwkv', help='greedy answer generation from a tokenizer-compatible text checkpoint')
@@ -105,6 +123,7 @@ def main():
     report.add_argument('key', type=Path); report.add_argument('predictions', type=Path)
     args = p.parse_args()
     if args.command == 'make': make(args)
+    elif args.command == 'replay': replay(args)
     elif args.command == 'score': print(json.dumps(score(args.key, args.predictions), indent=2))
     else: predict(args)
 

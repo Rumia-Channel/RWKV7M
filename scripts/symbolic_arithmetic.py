@@ -137,14 +137,7 @@ def _resolve_definitions(programs: dict[str, tuple[_Code, set[str]]]) -> dict[st
     return values
 
 
-def solve_prompt(prompt: str, *, window: int | None = None) -> Gaussian:
-    """Solve only the visible prompt; ``window`` retains its last N assignments.
-
-    Updates read the current environment before assigning their left-hand side.
-    Definitions must be unique and acyclic, and may refer to later lines.
-    """
-    if window is not None and (isinstance(window, bool) or not isinstance(window, int) or window < 0):
-        raise ValueError("window must be a nonnegative integer or None")
+def _prompt_parts(prompt):
     lines = prompt.splitlines()
     if not lines or lines[0] not in ("Mode: updates", "Mode: definitions"):
         raise ValueError("first line must specify Mode: updates or Mode: definitions")
@@ -158,6 +151,71 @@ def solve_prompt(prompt: str, *, window: int | None = None) -> Gaussian:
     query = lines[-2][len("Query: "):]
     if _QUERY.fullmatch(query) is None:
         raise ValueError("query must be a product of uppercase/indexed variables")
+    return lines, start, query
+
+
+def _assignment(statement):
+    match = _ASSIGNMENT.fullmatch(statement)
+    if match is None:
+        raise ValueError("expected an assignment: X = expression")
+    return match.groups()
+
+
+def _query_definitions(programs, names):
+    needed = {}
+    pending = list(names)
+    while pending:
+        name = pending.pop()
+        if name in needed:
+            continue
+        if name not in programs:
+            raise ValueError(f"undefined variable: {name}")
+        needed[name] = programs[name]
+        pending.extend(programs[name][1])
+    return needed
+
+
+def replay_prompt(prompt: str, budget: int) -> str | None:
+    """Select verbatim reaching assignments, not their values. Abstain if the slice exceeds budget."""
+    if budget < 1:
+        raise ValueError("replay statement budget must be positive")
+    lines, start, query = _prompt_parts(prompt)
+    needed = set(_tokens(query))
+    selected = []
+    if lines[0] == "Mode: updates":
+        for i in range(len(lines)-3, start, -1):
+            name, rhs = _assignment(lines[i])
+            if name in needed:
+                selected.append(i)
+                if len(selected) > budget:
+                    return None
+                # Read dependencies from the version *before* this assignment.
+                needed.remove(name)
+                needed.update(t for t in _tokens(rhs) if t[0].isupper())
+            if not needed:
+                break
+        if needed:
+            raise ValueError(f"undefined variable: {min(needed)}")
+        selected.reverse()
+    else:
+        definitions = {}
+        for i in range(start+1, len(lines)-2):
+            name, rhs = _assignment(lines[i])
+            if name in definitions:
+                raise ValueError(f"duplicate definition: {name}")
+            definitions[name] = i, {t for t in _tokens(rhs) if t[0].isupper()}
+        relevant = _query_definitions(definitions, needed)
+        if len(relevant) > budget:
+            return None
+        selected = sorted(i for i, _ in relevant.values())
+    return "\n".join([*lines[:start+1], *(lines[i] for i in selected), *lines[-2:]])
+
+
+def solve_prompt(prompt: str, *, window: int | None = None) -> Gaussian:
+    """Evaluate ordered updates or unordered, unique acyclic definitions in the visible window."""
+    if window is not None and (isinstance(window, bool) or not isinstance(window, int) or window < 0):
+        raise ValueError("window must be a nonnegative integer or None")
+    lines, start, query = _prompt_parts(prompt)
     statements = lines[start + 1:-2]
     if window is not None:
         statements = statements[-window:] if window else []
@@ -165,10 +223,7 @@ def solve_prompt(prompt: str, *, window: int | None = None) -> Gaussian:
     values: dict[str, Gaussian] = {}
     programs: dict[str, tuple[_Code, set[str]]] = {}
     for statement in statements:
-        match = _ASSIGNMENT.fullmatch(statement)
-        if match is None:
-            raise ValueError("expected an assignment: X = expression")
-        name, expression = match.groups()
+        name, expression = _assignment(statement)
         code, dependencies = _compile(expression)
         if lines[0] == "Mode: updates":
             if window is not None and not dependencies <= values.keys():
@@ -182,18 +237,7 @@ def solve_prompt(prompt: str, *, window: int | None = None) -> Gaussian:
             programs[name] = code, dependencies
     if lines[0] == "Mode: definitions":
         if window is not None:
-            # A missing operand of a distractor is immaterial if the query is fully resolvable.
-            needed = {}
-            pending = list(query_names)
-            while pending:
-                name = pending.pop()
-                if name in needed:
-                    continue
-                if name not in programs:
-                    raise ValueError(f"undefined variable in window: {name}")
-                needed[name] = programs[name]
-                pending.extend(programs[name][1])
-            programs = needed
+            programs = _query_definitions(programs, query_names)
         values = _resolve_definitions(programs)
     return _evaluate(query_code, values)
 

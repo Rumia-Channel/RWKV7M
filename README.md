@@ -171,6 +171,8 @@ Omit `--last-statements 16` and use a new output filename for the full symbolic 
 
 For another runtime, pass **only** `questions.jsonl` (`id`, `prompt`) and return JSONL rows such as `{"id":"<unchanged question id>","prediction":"8+144i"}`. An absent answer, extra prose, or an unfinished expression is a miss. The score reports individual answers, both counterfactual worlds correct, and the same worlds correct at both the near and far distance. `--gaps` counts assignments, not tokens; use fresh seeds for held-out model evaluation.
 
+To protect a small reader from unrelated equations, use `python scripts/benchmark_symbolic_bindings.py replay out/equations/questions.jsonl out/equations/deps.jsonl --statements 16`. It inspects the full public history and sends only the necessary original assignments, preserving the versions read before later overwrites. Feed `deps.jsonl` to any of the readers, then score against the **original** `key.jsonl`. Over-budget questions are omitted and count as misses. The selector does no arithmetic; the budget limits the downstream reader, not the host's access to the input.
+
 ## Comparison experiments
 
 For long-distance memory experiments on the **ordinary, no-screening RWKV**, see [paper §22.9–22.10](RWKV7M.paper.md#229-通常rwkvの保持距離入力できる長さと検索できる距離は違う) and the [paired observations and three portable parent checkpoints](experiments/retention/). These are synthetic key/value retrieval experiments, not natural-language context-length ratings. `python scripts/probe_retrieval_diversity.py` varies the number of distractor keys at a fixed distance and write count; `python scripts/benchmark_retrieval_readout.py` measures the time, temporary buffers and numerical cost of sharing a query prefix.
