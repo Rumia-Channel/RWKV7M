@@ -177,6 +177,8 @@ To protect a small reader from unrelated equations, use `python scripts/benchmar
 
 For long-distance memory experiments on the **ordinary, no-screening RWKV**, see [paper §22.9–22.10](RWKV7M.paper.md#229-通常rwkvの保持距離入力できる長さと検索できる距離は違う) and the [paired observations and three portable parent checkpoints](experiments/retention/). These are synthetic key/value retrieval experiments, not natural-language context-length ratings. `python scripts/probe_retrieval_diversity.py` varies the number of distractor keys at a fixed distance and write count; `python scripts/benchmark_retrieval_readout.py` measures the time, temporary buffers and numerical cost of sharing a query prefix.
 
+For a CPU smoke run, use `JAX_PLATFORMS=cpu python scripts/benchmark_retrieval_readout.py --repeats 1`. It compiles both paths and reports `changed_top1` as well as temporary memory; BF16 predictions need not be identical across batch shapes.
+
 The [write-state experiment](RWKV7M.paper.md#2214-問い合わせ先ごとに書き込み直後の内部状態を保存する) keeps the weights fixed and compares the final state, a 16-write FIFO, and the latest neural state for each of 16 keys. Only a visible completed write can create a snapshot; a read still runs the RWKV question suffix and full vocabulary head. To repeat it with the three published parents, or score the raw reads without JAX:
 
 ```bash

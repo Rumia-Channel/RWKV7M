@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from probe_retrieval_distance import histories
-from retrieval_paired_readout import _prefill_and_fork, paired_final_logits
+from retrieval_paired_readout import compiled_branched_logits, paired_final_logits
 from rwkv7m import load_model_safetensors
 from rwkv7m.model.nnx_conversion import load_linen_params_into_nnx
 from rwkv7m.model.nnx_model import initialize_nnx_model
@@ -57,8 +57,9 @@ def benchmark(weights, repeats):
                     jax.block_until_ready(fn())
                     elapsed[name].append(time.perf_counter() - start)
             full_exe = full_logits.lower(model, jnp.asarray(ids.reshape(-1, tokens)), *full_state).compile()
-            fork_exe = _prefill_and_fork.lower(model, jnp.asarray(shared[:, :, 0]), jnp.asarray(queries[:, :, :q]),
-                                               *fork_state).compile()
+            fork_exe = compiled_branched_logits.lower(
+                model, jnp.asarray(shared[:, :, 0]), jnp.asarray(queries[:, :, :q]), *fork_state,
+            ).compile()
             def nll(logits):
                 return float(-np.take_along_axis(np.asarray(jax.nn.log_softmax(logits)), labels[:, :, :q, None], -1).mean())
             yield dict(dtype=dtype, queries=q, pairs=families, tokens=tokens, answer_rows=families * worlds * q,

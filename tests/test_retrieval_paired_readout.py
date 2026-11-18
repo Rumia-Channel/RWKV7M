@@ -2,7 +2,6 @@ from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
 
-from flax import nnx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -35,12 +34,8 @@ def test_forked_queries_match_independent_world_and_key_rollouts(inputs):
     def initial(n):
         return init_rwkv_state(n, cfg), init_screen_state(n, cfg.screening)
 
-    @nnx.jit
-    def full(model, x, r, s):
-        hidden, *_ = model.compute_recurrent_hidden(x, r, s, phase='read_write', deterministic=True)
-        return model.compute_logits(hidden[:, -1:, :])[:, 0, :]
-
-    ref = full(model, jnp.asarray(ids.reshape(4, -1)), *initial(4))
+    full_logits = import_module('benchmark_retrieval_readout').full_logits
+    ref = full_logits(model, jnp.asarray(ids.reshape(4, -1)), *initial(4))
     actual = score(model, ids, *initial(2)).reshape(ref.shape)
     np.testing.assert_allclose(actual, ref, rtol=2e-5, atol=2e-5)
     np.testing.assert_array_equal(actual.argmax(-1), ref.argmax(-1))
