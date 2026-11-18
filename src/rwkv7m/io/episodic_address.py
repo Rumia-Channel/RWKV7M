@@ -9,7 +9,8 @@ from safetensors.numpy import save_file
 
 from ..model.episodic_address import BITS, CLASSES, FEATURES, init_head
 
-ARMS=('endpoint','source','ordinary')
+PRIMARY_ARMS=('endpoint','source','ordinary')
+ARMS=(*PRIMARY_ARMS,'factors')
 FORMAT='rwkv7m.episodic_address'
 
 
