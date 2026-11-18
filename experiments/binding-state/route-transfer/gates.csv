@@ -1,0 +1,5 @@
+reader,weights,conditions,minimum_raw_rate,all_reach_90pct
+coupled,3,12,0.0,False
+isolated,3,12,0.0,False
+ordinary,3,12,0.0,False
+register,3,12,0.0,False
