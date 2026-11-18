@@ -1,0 +1,7 @@
+arm,weight_seed,evaluation_data_seeds,development_data_seeds,calibration_enabled,recent_delta,old_changed,near_delta,overwrite_delta,primary_delta,nonfinite,passed
+calibrated,42,731947 731948,731927 731928,False,0.0,0,0.0,0.0,0.0,0,True
+calibrated,43,731947 731948,731927 731928,False,0.0,0,0.0,0.0,0.0,0,True
+calibrated,44,731947 731948,731927 731928,True,0.859375,0,0.0,0.0,0.0,0,True
+replay,42,731947 731948,731927 731928,,0.015625,0,0.0,0.0,0.0,0,True
+replay,43,731947 731948,731927 731928,,0.015625,0,0.0,0.0,0.0,0,True
+replay,44,731947 731948,731927 731928,,0.859375,0,0.0,0.0,0.0,0,True

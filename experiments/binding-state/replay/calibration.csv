@@ -1,0 +1,4 @@
+weight_seed,enabled,development_data_seeds,evaluation_data_seeds,recent_delta,old_changed,near_delta,overwrite_delta,primary_delta,nonfinite,passed
+42,False,731927 731928,731947 731948,0.0,0,0.0,0.0,0.0,0,False
+43,False,731927 731928,731947 731948,0.03125,0,0.0,0.0,0.0,0,False
+44,True,731927 731928,731947 731948,0.796875,0,0.0,0.0,0.0,0,True
