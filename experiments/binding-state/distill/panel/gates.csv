@@ -1,0 +1,7 @@
+candidate,reference,weight_seed,rewritten_gain_pairs,rewritten_pairs,old_delta,near_delta,overwrite_delta,nonfinite,guardrails_pass,pooled_gain_pairs,pooled_pairs,positive_seeds,adopt
+ce,parent,42,-1,128,0.015625,0.00390625,0.0,0,True,51,384,2,True
+ce,parent,43,2,128,0.0078125,0.0078125,0.0,0,True,51,384,2,True
+ce,parent,44,50,128,0.0078125,-0.00390625,-0.015625,0,True,51,384,2,True
+distill,ce,42,1,128,0.0,0.0,0.0,0,True,8,384,2,False
+distill,ce,43,0,128,0.0,0.0,0.0,0,True,8,384,2,False
+distill,ce,44,7,128,-0.0078125,0.0,0.0,0,True,8,384,2,False

@@ -200,7 +200,26 @@ python scripts/score_binding_replay.py out/replay/heldout.csv out/replay/report 
 
 The length control substitutes filler for exactly 1,024 intervening tokens while retaining the same visible writes at the end. Development reuses stored guarded predictions only after checking the complete input hash. The independent run evaluates the frozen networks; optional checkpoint-level enablement is chosen from the development split alone.
 
-To pause and resume the matched study, run these commands in order:
+### Can an ordinary RWKV learn this without rereading?
+
+The [full-history student trial](RWKV7M.paper.md#2216-末尾の再読を教師にして再読しない通常rwkvを鍛える) trains two copies of each published parent on exactly the same examples. Both see a changed prefix with a fixed final write, and a changed final write with a fixed prefix. `ce` learns the public next-token answer; `distill` also learns from the frozen parent's 64-token read when it correctly answers a rewritten key. Every evaluation uses **one ordinary recurrent state**, no teacher, cache or replay.
+
+```bash
+python scripts/train_binding_distill.py out/binding-distill
+python scripts/probe_binding_distill.py out/binding-distill out/binding-distill/panel
+python scripts/score_binding_distill_gate.py out/binding-distill/panel/retrieval.csv out/binding-distill/panel/gates.csv
+python scripts/bootstrap_binding_distill.py out/binding-distill/panel/readouts.csv out/binding-distill/panel/intervals.csv
+python scripts/probe_binding_stress.py out/binding-distill out/binding-distill/stress
+python scripts/probe_binding_stress.py out/binding-distill out/binding-distill/stress --arm literal
+```
+
+The first command exports six 504,960-parameter `safetensors` students plus update and training-cost CSVs. The panel measures previously unseen 0/32/1,024 gaps and depth-24 equation outcomes with a shared exact calculator. The stress command physically reads 1,000,000 changing distractor tokens on one fixed history pair for parent 44 and its students; it is a counterexample check, not a context-length rating.
+
+The [trained checkpoints, raw predictions, gates and uncertainty estimates](experiments/binding-state/distill/) are published. Hard-label training passed the recent-write gate; distillation did not beat it by the preregistered margin. Neither recovered the old bindings on the million-token example; the `literal` control verifies it is answerable from the public input.
+
+### Resuming the earlier adaptive-distance curriculum
+
+For the separate 96-step frontier study, run these commands in order:
 
 ```bash
 python scripts/train_retrieval_frontier.py out/frontier-study --arm adaptive --seed 42 --until-step 24

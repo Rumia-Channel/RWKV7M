@@ -1,0 +1,3 @@
+candidate,reference,gain_pairs,key_pairs,rate_difference,across_parent_sd,family_ci95_low,family_ci95_high,two_sided_parent_sign_flip_p
+ce,parent,51,384,0.1328125,0.22357950033209664,0.10677083333333333,0.15885416666666666,0.5
+distill,ce,8,384,0.020833333333333332,0.02957764763437643,0.005208333333333333,0.0390625,0.5
