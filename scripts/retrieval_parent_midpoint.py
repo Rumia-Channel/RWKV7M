@@ -2,11 +2,14 @@
 
 import argparse
 from hashlib import file_digest
+import json
 from pathlib import Path
 
 import numpy as np
 from safetensors import safe_open
 from safetensors.numpy import save_file
+
+from rwkv7m.io.config import model_config_from_dict
 
 
 def midpoint(parent, fixed, output):
@@ -16,8 +19,11 @@ def midpoint(parent, fixed, output):
     tensors = {}
     with safe_open(parent, framework='numpy') as p, safe_open(fixed, framework='numpy') as t:
         meta = t.metadata(); pm = p.metadata()
+        # Older format-v1 exports omit defaulted config fields. Compare the configs the runtime actually loads.
+        parent_cfg = model_config_from_dict(json.loads(pm['rwkv7m_config_json']))
+        tuned_cfg = model_config_from_dict(json.loads(meta['rwkv7m_config_json']))
         if (meta['parent_weights_sha256'] != parent_sha or meta['curriculum_arm'] != 'fixed' or
-                meta['rwkv7m_config_json'] != pm['rwkv7m_config_json'] or p.keys() != t.keys()):
+                parent_cfg.use_screening or parent_cfg != tuned_cfg or p.keys() != t.keys()):
             raise ValueError('the fixed fine-tune and its exact registered parent are required')
         for k in p.keys():
             a, b = p.get_tensor(k), t.get_tensor(k)
