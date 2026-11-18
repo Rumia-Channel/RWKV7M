@@ -1,0 +1,10 @@
+arm,weight_seed,surface,conditions,answer_gate,source_gate,joint_gate
+factors,42,seen,4,0,0,0
+factors,42,held,4,0,0,0
+factors,42,shift,4,0,0,0
+factors,43,seen,4,0,0,0
+factors,43,held,4,0,0,0
+factors,43,shift,4,0,0,0
+factors,44,seen,4,0,0,0
+factors,44,held,4,0,0,0
+factors,44,shift,4,0,0,0

@@ -1,0 +1,13 @@
+arm,weight_seed,surface,conditions,answer_gate,source_gate,joint_gate
+endpoint,42,held,4,0,0,0
+source,42,held,4,0,0,0
+ordinary,42,held,4,0,,
+factors,42,held,4,1,1,1
+endpoint,43,held,4,0,0,0
+source,43,held,4,0,0,0
+ordinary,43,held,4,0,,
+factors,43,held,4,1,1,1
+endpoint,44,held,4,0,0,0
+source,44,held,4,0,0,0
+ordinary,44,held,4,0,,
+factors,44,held,4,1,1,1
