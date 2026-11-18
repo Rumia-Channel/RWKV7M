@@ -219,6 +219,22 @@ The first command exports six 504,960-parameter `safetensors` students plus upda
 
 The [trained checkpoints, raw predictions, gates and uncertainty estimates](experiments/binding-state/distill/) are published. Hard-label training passed the recent-write gate; distillation did not beat it by the preregistered margin. Neither recovered the old bindings on the million-token example; the `literal` control verifies it is answerable from the public input.
 
+### Protecting old bindings during writes to other keys
+
+The [address-screening trial](RWKV7M.paper.md#2217-書き込みの干渉を遮る双対アドレス型の状態screening) asks two different questions: does another key's update disturb an old value, and does `COPY C B` keep B's value **at the time of the copy** after B changes? It compares two 8,192-byte FP32 matrices using the same frozen RWKV features and 128-token output head. One writes in the read direction; the other writes in a direction that leaves the other 15 readouts unchanged in exact arithmetic. Both see commands, not labels. An ordinary full-history RWKV, a keyed-state/replay reader and a 16-byte literal table give separate reference points.
+
+```bash
+# Use a new output directory; raw results are never overwritten.
+python scripts/benchmark_address_screening.py out/address-screening
+python scripts/score_address_screening.py out/address-screening out/address-screening/scores
+```
+
+The first command runs on CPU with the three published CE checkpoints. It emits per-family predictions, address geometry, and a physical 10-million-token stress case. The second checks paired input/weight hashes and scores the preregistered gates. The copy panel changes every source immediately after copying it and tests depth-24 equations from the surviving values; the calculator is shared and exact. This is an experimental reader for 16 explicit names, **not** an option in v5, a new text checkpoint, or a demonstration of learned arithmetic. [Raw measurements and scores](experiments/binding-state/address-screening/).
+
+`--phase stress` isolates the two preregistered matrix arms. `--phase register-stress` tests a follow-on optimization on the same physical stream: for known names, store the 16 continuous RWKV readouts directly, rather than recovering them by multiplying the dense matrix. This eliminates cross-key numerical drift without adding parameters. The 10M run repeats a 512-token period with 1,250,000 actual distractor writes per history; it does not store 10M independent facts.
+
+To recompute the decision and paired history-family intervals without loading JAX or a model, run `python scripts/score_address_screening.py experiments/binding-state/address-screening out/address-rescore`. The intervals resample 32 families together across the three frozen checkpoints; keys and counterfactual worlds are not independent trials.
+
 ### Resuming the earlier adaptive-distance curriculum
 
 For the separate 96-step frontier study, run these commands in order:
