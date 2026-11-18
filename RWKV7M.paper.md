@@ -2904,6 +2904,30 @@ memory branch zeroing
 
 可視化だけをcausal evidenceとして扱わない。
 
+## 22.9 通常RWKVの保持距離：入力できる長さと検索できる距離は違う
+
+下記は自然言語モデルの長距離性能についての主張ではなく、合成の最新値検索に対する診断である。対象はScreeningなしのRWKV-7（2層、幅128、504,960パラメーター）。3つの[公開重み](experiments/retention/parents/)は検索を学んだ親モデルから、長さ96の7更新と352の1更新を混ぜて追加学習したもの。実験用の語彙は128種類の合成IDであり、一般文章用の重みではない。
+
+16件のkey/valueを最初に書き、8件の値だけを交換した別履歴も作る。key、valueの集合・出現回数、質問は同じだが正解だけは変わる。スコアは、同一keyを両履歴とも正解した件数。数える距離は最後の初期書込みから質問までの介在token数 `D`（対象key別には `D` ～ `D+56`）。`filler`は同じ無情報token、`other-writes`は64 tokenごとに別の8 keyだけを同じ値で再書込みする。途中で質問対象のkey/valueは見せない。
+
+| `D` | filler：両履歴正答 | 他key再書込み：両履歴正答 |
+| ---: | ---: | ---: |
+| 1,024 | 181/192 | 0/192 |
+| 4,096 | 137/192 | 0/192 |
+| 16,384 | 38/192 | 0/192 |
+| 1,000,000 | 0/8 | 0/8 |
+| 10,000,000 | 0/8 | 0/8（16回答すべて非有限） |
+
+上3行はdata seed 9502の8履歴対を3つの学習初期値で共有した結果で、192の独立文書ではない。100万・1,000万は代表のseed42、data seed 9501の1履歴対。FP32 WKV・BF16活性のCPU推論で、両条件とも周期の省略はなく10Mまで入力した。fillerの10Mは有限な16予測がすべて誤り。再書込みの10Mは両層のWKVが非有限で、有効な予測がない。失敗を分母から除かない。これはこの重み・入力による反例であり、RWKV一般の限界距離ではない。
+
+[seed別計測値・分母・実入力数](experiments/retention/distance-baseline.csv)。代表例の再現:
+
+```bash
+JAX_PLATFORMS=cpu python scripts/probe_retrieval_distance.py \
+  experiments/retention/parents/long-s42.safetensors out/long-s42-other.json \
+  --gap-kind other-writes --data-seed 9501 --gaps 0 1024 1000000 10000000
+```
+
 ---
 
 # 23. Statistical Protocol
